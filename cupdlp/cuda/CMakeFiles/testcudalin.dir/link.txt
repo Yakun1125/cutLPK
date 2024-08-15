@@ -1,1 +1,0 @@
-/usr/bin/cc -O2 -DNDEBUG CMakeFiles/testcudalin.dir/test_cuda_linalg.c.o -o ../../bin/testcudalin  -Wl,-rpath,/home/yakun/cuPDLP/lib:/usr/local/cuda/lib64 ../../lib/libcudalin.so /usr/local/cuda/lib64/libcudart.so /usr/local/cuda/lib64/libcusparse.so /usr/local/cuda/lib64/libcublas.so -lm 
