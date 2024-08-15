@@ -20,6 +20,7 @@ The project uses CMake for configuration and building. Below are the steps to bu
    cd build
    cmake -DBUILD_CUDA=ON ..
    cmake --build . --target plc
+   exit
 
 ## Example Usage
 
