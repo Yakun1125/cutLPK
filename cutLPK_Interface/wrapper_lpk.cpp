@@ -1883,9 +1883,9 @@ extern "C" int gurobi_partial_lpk(float tolerance, float time_limit, void* XsolP
 		// Create an environment and set WLS parameters
 		GRBEnv env = GRBEnv(true);
 		env.set(GRB_IntParam_OutputFlag, 0);
-		env.set("WLSACCESSID", "257b1c4f-526d-40dc-a072-bbc50d5ffda8");
-		env.set("WLSSECRET", "7b6bd99e-108c-4c55-9526-0b808993313f");
-		env.set("LICENSEID", "2502162");
+		env.set("WLSACCESSID", "");
+		env.set("WLSSECRET", "");
+		env.set("LICENSEID", "");
 
 		env.start();
 
