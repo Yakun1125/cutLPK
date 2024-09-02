@@ -1,1 +1,0 @@
-/usr/bin/cc -fPIC -O2 -DNDEBUG -shared -Wl,-soname,libwrapper_lp.so -o ../lib/libwrapper_lp.so CMakeFiles/wrapper_lp.dir/mps_lp.c.o  -Wl,-rpath,/home/yakun/cuPDLP/lib:/usr/local/cuda/lib64 ../lib/libcupdlp.so -Wl,-rpath-link,/home/yakun/cuPDLP/lib:/usr/local/cuda/lib64 
