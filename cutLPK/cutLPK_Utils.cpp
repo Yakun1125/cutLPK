@@ -1,6 +1,6 @@
 ﻿#include "cutLPK_Utils.h"
 
-namespace pdlp = ::operations_research::pdlp;
+//namespace pdlp = ::operations_research::pdlp;
 
 void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::vector<Eigen::Triplet<int>>& basic_triplets) {
 	lp.N = N;
