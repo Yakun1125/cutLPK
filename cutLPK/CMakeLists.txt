@@ -79,7 +79,6 @@ if(USE_CUPDLP)
    include_directories("${CUPDLP_ROOT}/interface")
    include_directories("${CUPDLP_ROOT}/cupdlp")
 
-   set(CUPDLP_LIB_DIR "${CUPDLP_ROOT}/out/build/linux-release-CUDA/lib")
    link_directories(${CUPDLP_LIB_DIR})
    
    find_library(WRAPPER_HIGHS_LIB wrapper_highs PATHS ${CUPDLP_LIB_DIR} NO_DEFAULT_PATH)
