@@ -479,13 +479,6 @@ int KMeansClustering::Solve() {
             }
         }
 
-        if (primal_obj_improvement < 1e-6) {
-            improvement_failed = true;
-        }
-        else {
-            improvement_failed = false;
-        }
-
         // consider increase time limit
         if (cut_iter >= 3) {
             if (solver_retcode_record[cut_iter - 1] == 1 && solver_retcode_record[cut_iter - 2] == 1 && solver_time_limit_increased == false) {
@@ -528,6 +521,13 @@ int KMeansClustering::Solve() {
             t_increased_record[cut_iter - 1] = t_increased;
         }
 
+        if (primal_obj_improvement < 1e-6) {
+            improvement_failed = true;
+        }
+        else {
+            improvement_failed = false;
+        }
+	    
         // print info
         auto time_stamp3 = std::chrono::high_resolution_clock::now();
         auto stamp3_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp3 - cutLPK_start);
