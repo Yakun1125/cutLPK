@@ -352,16 +352,16 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	r = lp.ConsMatrix * Eigen::VectorXd::Map(col_value_org, numVars);
 
 	// go through last numCuts of r, which is the residual of the cuts
-    for (int i = 0; i < numCuts; ++i) {
-		cuts[i].violation = r[cuts_idx_start + i];
+        for (int i = 0; i < numCuts; ++i) {
+	    cuts[i].violation = r[cuts_idx_start + i];
 	}
 
 
 	// dual constraints residual
-    // compute vector r by r = ConsMatrix^T * row_dual_org(every row) - obj_coef
-    //r = Eigen::VectorXd::Map(obj_coef.data(), obj_coef.size());
-    //row_dual_org_vec = Eigen::VectorXd::Map(row_dual_org, numConstr);
-    //r -= ConsMatrix.transpose() * row_dual_org_vec;
+        // compute vector r by r = ConsMatrix^T * row_dual_org(every row) - obj_coef
+        // r = Eigen::VectorXd::Map(obj_coef.data(), obj_coef.size());
+        // row_dual_org_vec = Eigen::VectorXd::Map(row_dual_org, numConstr);
+        // r -= ConsMatrix.transpose() * row_dual_org_vec;
 
 	//debug  this part, print size info
 
@@ -388,23 +388,17 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	// clean all local var: r and row_dual_org_vec
 	r.resize(0);
 	row_dual_org_vec.resize(0);
-	if (w->resobj->termIterate == LAST_ITERATE) {
-		//*dual_obj = w->resobj->dDualObj;
-		primal_obj = w->resobj->dPrimalObj;
-	}
-	else {
-		//*dual_obj = w->resobj->dDualObjAverage;
-		primal_obj = w->resobj->dPrimalObjAverage;
-	}
-	if (w->resobj->termCode == OPTIMAL) {
+
+	primal_obj = Eigen::VectorXd::Map(lp.objCoef.data(), lp.objCoef.size()).dot(Eigen::VectorXd::Map(col_value_org, numVars));
+	if (status_pdlp == 0) {
 		return_code = 0;
 	}
-	else if (w->resobj->termCode == TIMELIMIT_OR_ITERLIMIT) {
+	else if (status_pdlp == 4) {// 4 means time limit reached and it's acceptable
 		return_code = 1;
 	}
 	else {
+		// print termCode
 		return_code = 2;
-	
 	}
 	dual_obj = dual_value_sum;
 
