@@ -47,8 +47,8 @@ The following parameters can be set for the algorithm. To change a parameter val
 | output_file | "logFile.txt" | Output file for logs |
 | output_level | 1 | Level of output detail |
 | random_seed | 1 | Seed for random number generation |
-| max_init | 1.5e7 | Maximum number of initial cuts |
-| max_per_iter | 3e7 | Maximum number of cuts per iteration |
+| max_cuts_init | 1.5e7 | Maximum number of initial cuts |
+| max_cuts_added_iter | 3e7 | Maximum number of violated cuts per iteration |
 | max_separation_size | 1.5e7 | Maximum separation size |
 | warm_start | 2 | Warm start option(1 is deterministic choose the initial cuts and 2 is randomly sampling) |
 | t_upper_bound | K | Upper bound for t (K is the number of clusters) |
