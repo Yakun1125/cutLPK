@@ -29,11 +29,14 @@ int main(int argc, char* argv[]) {
 		else if (param_name == "random_seed") {
 			kmeans.params.random_seed = std::stoi(param_value);
 		}
-		else if (param_name == "max_init") {
-			kmeans.params.max_init = std::stod(param_value);
+		else if (param_name == "max_cuts_init") {
+			kmeans.params.max_cuts_init = std::stod(param_value);
 		}
-		else if (param_name == "max_per_iter") {
-			kmeans.params.max_per_iter = std::stod(param_value);
+		else if (param_name == "max_cuts_per_iter") {
+			kmeans.params.max_cuts_per_iter = std::stod(param_value);
+		}
+		else if (param_name == "max_cuts_added_iter") {
+			kmeans.params.max_cuts_added_iter = std::stod(param_value);
 		}
 		else if (param_name == "max_separation_size") {
 			kmeans.params.max_separation_size = std::stod(param_value);
