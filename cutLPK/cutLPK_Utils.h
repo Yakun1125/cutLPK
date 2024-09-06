@@ -49,8 +49,9 @@ struct parameters {
 	std::string output_file;
 	int output_level;
 	int random_seed;
-	int max_init;
-	int max_per_iter;
+	int max_cuts_init;
+	int max_cuts_per_iter;
+	int max_cuts_added_iter;
 	int max_separation_size;
 	int warm_start;
 	int t_upper_bound;
