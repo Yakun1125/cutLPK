@@ -21,8 +21,9 @@ public:
         params.output_file = "logFile.txt";
 		params.output_level = 1;
 		params.random_seed = 1;
-		params.max_init = 1.5e7;
-		params.max_per_iter = 3e7;
+		params.max_cuts_init = 1.5e7;
+		params.max_cuts_per_iter = 3e7;
+		params.max_cuts_added_iter = 3e7;
 		params.max_separation_size = 1.5e7;
 		params.warm_start = 2;
 		params.t_upper_bound = K;
