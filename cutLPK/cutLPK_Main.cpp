@@ -543,7 +543,8 @@ int KMeansClustering::Solve() {
     std::cout << "cutting plane solved the problem in " << cut_iter << " iterations with " << time_used << " seconds" << std::endl;
     std::cout << "status: " << exit_status << std::endl;
     std::cout <<  "relative gap: "<<optimality_gap<<std::endl;
-    std::cout <<  "obj: " << upper_bound << std::endl;
+    std::cout <<  "obj: " << std::fixed << std::setprecision(4) << upper_bound << std::endl;
+    std::cout << std::defaultfloat;
     //std::cout << " Kmeans++ sol same as final sol: " << (Lloyd_Xsol - partitionMatrix).norm() << std::endl;
     std::cout << "added cuts record: ";
     for (int i = 0; i < params.t_upper_bound - 1; ++i) {
