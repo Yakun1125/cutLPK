@@ -30,8 +30,8 @@ void printIteration(const std::vector<char>& signs, int cut_iter, double lower_b
     }
     std::cout << std::setw(5 - signs.size()) << "";
     std::cout << std::setw(5) << cut_iter
-        << std::setw(12) << std::defaultfloat << std::setprecision(4) << lower_bound
-        << std::setw(12) << std::defaultfloat << std::setprecision(4) << upper_bound
+        << std::setw(12) << std::fixed << std::setprecision(3) << lower_bound
+        << std::setw(12) << std::fixed << std::setprecision(3) << upper_bound
         << std::setw(12) << std::fixed << std::setprecision(4) << optimality_gap
         << std::setw(6) << std::fixed << std::setprecision(0) << max_T
         << std::setw(12) << cuts_active_size
@@ -346,8 +346,9 @@ int KMeansClustering::Solve() {
         cuts_active_size = cuts_idx;
 
         // sorting and adding violated cuts
-        int remaining_capacity = std::max(params.max_per_iter - cuts_idx, 0);
-        if (remaining_capacity < 100000) {
+        int remaining_capacity = std::max(params.max_cuts_per_iter - cuts_idx, 0);// add as many as possible but control the size of LP
+        remaining_capacity = std::min(remaining_capacity, params.max_cuts_added_iter);
+        if (remaining_capacity == 0) {
             remaining_capacity += 100000;
         }
         std::vector<Eigen::Triplet<int>> violated_cuts_triplets;
