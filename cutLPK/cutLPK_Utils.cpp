@@ -41,7 +41,7 @@ initializationInfo addInitialCuts(const parameters& params, int N, int K, int cu
 	initializationInfo initInfo;
 	
 	unsigned long long totalCombinations = static_cast<unsigned long long>(N) * (N - 1) * (N - 2) / 2;
-	int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.max_init)));
+	int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.max_cuts_init)));
 	cuts.reserve(initial_size);
 	cuts_triplets.reserve(4 * initial_size);
 	double KmeansPlusPlus_Cost = kInfinity;
@@ -61,7 +61,7 @@ initializationInfo addInitialCuts(const parameters& params, int N, int K, int cu
 	// timeing Identify cuts
 	start = std::chrono::high_resolution_clock::now();
 	if (params.warm_start == 1) {
-		int size_each_i = params.max_init / N;// when problem size is large, we added first size_each_i triangle inequalities for each i,j 
+		int size_each_i = params.max_cuts_init / N;// when problem size is large, we added first size_each_i triangle inequalities for each i,j 
 		for (int i = 0; i < N; i++) {
 			int added_count_i = 0;
 			for (int j = 0; j < N; j++) {
