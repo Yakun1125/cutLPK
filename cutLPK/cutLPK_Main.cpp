@@ -489,17 +489,18 @@ int KMeansClustering::Solve() {
                 solver_time_limit_increased = true;
                 signs.push_back('#');
             }
-            else {
-                if (solver_retcode_record[cut_iter - 1] == 1 && (best_primal_obj > upper_bound || optimality_gap < params.opt_gap * 10)) {
-                    if (solver_time_limit_increased == true){
-                    solver_time_limit += params.time_limit_lp;
-                    }
-                    else{
-                    solver_time_limit += params.time_limit_lp * 0.5;
-                    }
-                    solver_time_limit_increased = true;
-                    signs.push_back('#');
-                }
+            else if (solver_retcode_record[cut_iter - 1] == 1 && (best_primal_obj > upper_bound || optimality_gap < params.opt_gap * 10)) {
+                  if (solver_time_limit_increased == true){
+                  solver_time_limit += params.time_limit_lp;
+                  }
+                  else{
+                  solver_time_limit += params.time_limit_lp * 0.5;
+                  }
+                  solver_time_limit_increased = true;
+                  signs.push_back('#');
+            }
+            else{
+              solver_time_limit_increased = false;
             }
         }
 
