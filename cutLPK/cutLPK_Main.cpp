@@ -316,7 +316,7 @@ int KMeansClustering::Solve() {
 
         int cuts_idx = 0;
         for (const auto& element : cutting_planes) {
-            if (std::abs(element.violation) < params.cuts_vio_tol) {
+            if (std::abs(element.violation) < params.cuts_act_tol) {
                 active_cuts.push_back(element);
                 int newRow = cuts_idx_start + cuts_idx;
                 auto it = element.ineq_idx.begin();
@@ -454,26 +454,23 @@ int KMeansClustering::Solve() {
 
         // update some parameters
         // consider decrase the tolerance
-        if ((optimality_gap < params.opt_gap * 10 || normValue < params.cuts_vio_tol*10) && tolerance_decreased == false) {//&& improvement < 1e-6 && t_increased == false
-            // if we are approaching optimum
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+        if (tolerance_decreased == false && solver_tolerance > params.lb_solver_tol + 1e-8 && current_lb < lower_bound) {
+            if (optimality_gap < params.opt_gap * 10 || normValue < params.cuts_vio_tol * 10) {
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
             }
-        }
-
-        if (((upper_bound-best_primal_obj)/upper_bound) < params.opt_gap && tolerance_decreased == false) {
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+            else if(optimality_gap < params.opt_gap * 100 && ((upper_bound - best_primal_obj)/upper_bound)<1e-8){
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
             }
-        }
-
-        if (improvement_failed == true && primal_obj_improvement < 1e-6 && max_T == params.t_upper_bound && tolerance_decreased == false) {
-            // if there are two consecutive iterations with no improvement, we decrease the tolerance
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+            else if (best_primal_obj > upper_bound && cut_iter >= 3) {
+                solver_tolerance = solver_tolerance * 0.01;
+                tolerance_decreased = true;
+                signs.push_back('!');
+            }
+            else if (improvement_failed == true && primal_obj_improvement < 1e-6 && max_T == params.t_upper_bound) {
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
@@ -482,14 +479,19 @@ int KMeansClustering::Solve() {
 
         // consider increase time limit
         if (cut_iter >= 3) {
-            if (solver_retcode_record[cut_iter - 1] == 1 && solver_retcode_record[cut_iter - 2] == 1 && solver_time_limit_increased == false) {
+            if (solver_retcode_record[cut_iter - 1] == 1 && solver_retcode_record[cut_iter - 2] == 1) {
                 solver_time_limit += params.time_limit_lp * 0.5;
                 solver_time_limit_increased = true;
                 signs.push_back('#');
             }
             else {
                 if (solver_retcode_record[cut_iter - 1] == 1 && (best_primal_obj > upper_bound || optimality_gap < params.opt_gap * 10)) {
-                    solver_time_limit += params.time_limit_lp * 0.5;
+		    if (solver_time_limit_increased == true){
+			solver_time_limit += params.time_limit_lp;
+		    }
+		    else{
+			solver_time_limit += params.time_limit_lp * 0.5;
+		    }
                     solver_time_limit_increased = true;
                     signs.push_back('#');
                 }
@@ -506,7 +508,7 @@ int KMeansClustering::Solve() {
                 t_increased_record[cut_iter - 1] = t_increased;
                 signs.push_back('+');
             }
-            else if (violation_size < 0.1 * cuts_active_size && best_primal_obj < upper_bound && primal_obj_improvement < 1e-6) {
+            else if (violation_size < 0.01 * cuts_active_size && primal_obj_improvement < 1e-6) {
                 max_T++;
                 t_increased = true;
                 t_increased_record[cut_iter - 1] = t_increased;
@@ -539,8 +541,7 @@ int KMeansClustering::Solve() {
     auto elpased_time = std::chrono::duration_cast<std::chrono::milliseconds>(cutLPK_end - alg_start);
     double time_used = elpased_time.count() / 1e3;
     std::cout << std::string(115, '=') << std::endl;
-    std::cout << std::defaultfloat;
-    std::cout << "cutting plane solved the problem in " << cut_iter << " iterations with " << time_used << " seconds" << std::endl;
+    std::cout << std::defaultfloat <<"cutting plane solved the problem in " << cut_iter << " iterations with " << time_used << " seconds" << std::endl;
     std::cout << "status: " << exit_status << std::endl;
     std::cout <<  "relative gap: "<<optimality_gap<<std::endl;
     std::cout <<  "obj: " << std::fixed << std::setprecision(4) << upper_bound << std::endl;
