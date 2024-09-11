@@ -216,7 +216,7 @@ int KMeansClustering::Solve() {
         }
         double primal_obj_improvement = (primal_obj - best_primal_obj) / (best_primal_obj);
 
-        if (primal_obj > best_primal_obj) {
+        if (primal_obj > best_primal_obj && cut_iter>=2) {
             best_primal_obj = primal_obj;
         }
 
