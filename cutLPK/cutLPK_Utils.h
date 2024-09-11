@@ -34,8 +34,9 @@ constexpr double kInfinity = std::numeric_limits<double>::infinity();
 struct validInequality {
 	std::list<int> ineq_idx;// index start with i and then subset S
 	double violation;
+        double dual_value;
 	validInequality(std::list<int> ineq_idx, double violation = kInfinity)
-		: ineq_idx(ineq_idx), violation(violation) {}
+		: ineq_idx(ineq_idx), violation(violation), dual_value(0) {}
 };
 
 struct LPK {
