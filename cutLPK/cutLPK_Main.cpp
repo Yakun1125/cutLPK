@@ -316,7 +316,9 @@ int KMeansClustering::Solve() {
 
         int cuts_idx = 0;
         for (const auto& element : cutting_planes) {
-            if (std::abs(element.violation) < params.cuts_act_tol) {
+            if ((cut_iter != 1 && std::abs(element.violation) < params.cuts_act_tol) ||
+                (cut_iter == 1 && std::abs(element.violation) < params.cuts_act_tol * 1e-2 && std::abs(element.dual_value) > params.cuts_act_tol)) {
+
                 active_cuts.push_back(element);
                 int newRow = cuts_idx_start + cuts_idx;
                 auto it = element.ineq_idx.begin();
