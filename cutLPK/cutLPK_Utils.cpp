@@ -354,6 +354,7 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	// go through last numCuts of r, which is the residual of the cuts
         for (int i = 0; i < numCuts; ++i) {
 	    cuts[i].violation = r[cuts_idx_start + i];
+	    cuts[i].dual_value = row_dual_org[cuts_idx_start + i];
 	}
 
 
