@@ -522,6 +522,12 @@ int KMeansClustering::Solve() {
                 t_increased_record[cut_iter - 1] = t_increased;
                 signs.push_back('+');
             }
+	    else if (violation_size < 0.005 * cuts_active_size){
+                max_T++;
+                t_increased = true;
+                t_increased_record[cut_iter - 1] = t_increased;
+                signs.push_back('+');
+            }
             else {
                 t_increased = false;
                 t_increased_record[cut_iter - 1] = t_increased;
