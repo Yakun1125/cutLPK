@@ -15,13 +15,6 @@
 #include <string>
 #include <unordered_set>
 
-
-#include "ortools/base/init_google.h"
-#include "ortools/pdlp/iteration_stats.h"
-#include "ortools/pdlp/primal_dual_hybrid_gradient.h"
-#include "ortools/pdlp/quadratic_program.h"
-#include "ortools/pdlp/solve_log.pb.h"
-#include "ortools/pdlp/solvers.pb.h"
 //#include "gurobi_c++.h"
 #include "wrapper_highs.h"
 #include "../cupdlp/cupdlp.h"
