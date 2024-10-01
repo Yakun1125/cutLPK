@@ -15,6 +15,7 @@ add_executable(cutLPK
     main.cpp
     Lloyd.cpp
     cutLPK_Utils.cpp
+    fairLPK_Utils.cpp
     cutLPK_Main.cpp
 )
 
