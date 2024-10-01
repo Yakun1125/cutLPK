@@ -42,7 +42,7 @@ public:
 		params.cuts_act_tol = 1e-4;
 		params.opt_gap = 1e-4;
 
-		params.fairness_type = "group";
+		params.fairness_type = "none";
 		params.fairness_param = 0.5;
 	}
 
