@@ -1,5 +1,6 @@
 #include "Lloyd.h"
 
+
 //Kmeans
 double euclideanDistance(const Eigen::VectorXd& a, const Eigen::VectorXd& b) {
 	return (a - b).squaredNorm();
@@ -48,6 +49,70 @@ bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<
 		}
 	}
 	return changed;
+}
+
+bool fairAssignment(GRBModel& model, std::vector<std::vector<GRBVar>>& x, const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment, const std::vector<std::vector<bool>>& dataGroups, const std::vector<int>& groupRatio, double fairness_param) {
+
+	// Number of data points
+	int N = dataPoints.size();
+
+	// Number of clusters
+	int numClusters = centroids.size();
+
+	// Number of groups
+	int numGroups = groupRatio.size();
+
+	try {
+
+		// Set objective function: minimize total clustering cost
+		GRBLinExpr obj = 0.0;
+		for (int i = 0; i < N; ++i) {
+			for (int k = 0; k < numClusters; ++k) {
+				double dist = (dataPoints[i] - centroids[k]).squaredNorm();
+				obj += dist * x[i][k];
+			}
+		}
+		model.setObjective(obj, GRB_MINIMIZE);
+
+		// Optimize model
+		model.optimize();
+
+		// Check if optimal solution was found
+		if (model.get(GRB_IntAttr_Status) == GRB_OPTIMAL) {
+			bool changed = false;
+			// Update assignment
+			for (int i = 0; i < N; ++i) {
+				for (int k = 0; k < numClusters; ++k) {
+					if (x[i][k].get(GRB_DoubleAttr_X) > 0.5) {
+						if (assignment[i] != k) {
+							assignment[i] = k;
+							changed = true;
+						}
+						break;
+					}
+				}
+			}
+			return changed;
+		}
+		else if (model.get(GRB_IntAttr_Status) == GRB_INF_OR_UNBD) {
+			std::cout << "Model is infeasible or unbounded." << std::endl;
+			return false;
+		}
+		else {
+			// No optimal solution found
+			std::cout << "No optimal solution found." << std::endl;
+			return false;
+		}
+	}
+	catch (GRBException e) {
+		std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
+		std::cout << e.getMessage() << std::endl;
+		return false;
+	}
+	catch (...) {
+		std::cout << "Unknown exception during optimization." << std::endl;
+		return false;
+	}
 }
 
 // Recompute centroids based on current assignment
@@ -127,6 +192,121 @@ std::pair<double, Eigen::MatrixXd> runKMeans(const std::vector<Eigen::VectorXd>&
 	}
 
 	return std::make_pair(bestWCSS,bestPartitionMatrix);
+}
+
+std::pair<double, Eigen::MatrixXd> runFairKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations, int numTrials, int random_seed, const std::vector<std::vector<bool>>& dataGroups, const std::vector<int>& groupRatio, double fairness_param) {
+	std::mt19937 gen(random_seed);
+	int n = dataPoints.size();
+	Eigen::MatrixXd bestPartitionMatrix = Eigen::MatrixXd::Zero(n, n);
+	double bestWCSS = std::numeric_limits<double>::max();
+
+	// Number of data points
+	int N = dataPoints.size();
+
+	// Number of clusters
+	int numClusters = k;
+
+	// Number of groups
+	int numGroups = groupRatio.size();
+
+	// Create environment
+	GRBEnv env = GRBEnv(true);
+	env.set(GRB_IntParam_OutputFlag, 0);
+	env.set("WLSACCESSID", "257b1c4f-526d-40dc-a072-bbc50d5ffda8");
+	env.set("WLSSECRET", "7b6bd99e-108c-4c55-9526-0b808993313f");
+	env.set("LICENSEID", "2502162");
+	env.start();
+
+	// Create an empty model
+	GRBModel model = GRBModel(env);
+	// Create variables x_{i,k}
+	std::vector<std::vector<GRBVar>> x(N, std::vector<GRBVar>(numClusters));
+
+	try {
+
+		for (int i = 0; i < N; ++i) {
+			for (int k = 0; k < numClusters; ++k) {
+				x[i][k] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY,
+					"x_" + std::to_string(i) + "_" + std::to_string(k));
+			}
+		}
+
+		// Assignment constraints: each data point assigned to exactly one cluster
+		for (int i = 0; i < N; ++i) {
+			GRBLinExpr sum_xik = 0.0;
+			for (int k = 0; k < numClusters; ++k) {
+				sum_xik += x[i][k];
+			}
+			model.addConstr(sum_xik == 1, "assign_" + std::to_string(i));
+		}
+
+		std::vector<double> normalized_groupRatio(numGroups, 0.0);
+
+		for (int g = 0; g < numGroups; g++) {
+			normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
+		}
+
+		// Fairness constraints
+		for (int k = 0; k < numClusters; ++k) {
+			// Compute sum_{i=1}^N x_{i,k}
+			GRBLinExpr sum_xik = 0.0;
+			for (int i = 0; i < N; ++i) {
+				sum_xik += x[i][k];
+			}
+
+			for (int g = 0; g < numGroups; ++g) {
+				// sum_{i in group g} x_{i,k}
+				GRBLinExpr sum_xikg = 0.0;
+				for (int i = 0; i < N; ++i) {
+					if (dataGroups[i][g]) {
+						sum_xikg += x[i][k];
+					}
+				}
+
+				// Tolerance is set as fairness_param * N
+				double tolerance = fairness_param;
+
+				// Lower bound constraint
+				model.addConstr(sum_xikg  >= (normalized_groupRatio[g] - tolerance) * sum_xik,
+					"fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
+
+				// Upper bound constraint
+				model.addConstr(sum_xikg <= (normalized_groupRatio[g] + tolerance) * sum_xik,
+					"fair_ub_k" + std::to_string(k) + "_g" + std::to_string(g));
+			}
+		}
+	}
+	catch (GRBException e) {
+		std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
+		std::cout << e.getMessage() << std::endl;
+	}
+	catch (...) {
+		std::cout << "Unknown exception during optimization." << std::endl;
+	}
+
+	for (int trial = 0; trial < numTrials; ++trial) {
+		std::vector<Eigen::VectorXd> centroids = initializeCentroidsPlusPlus(dataPoints, k, gen);
+		std::vector<int> assignment(n, 0);
+		double currentWCSS = std::numeric_limits<double>::max();
+
+		for (int iter = 0; iter < maxIterations; ++iter) {
+			bool changed = fairAssignment(model, x, dataPoints, centroids, assignment, dataGroups, groupRatio, fairness_param);
+			updateCentroids(dataPoints, centroids, assignment, k);
+			double newWCSS = computeWCSS(dataPoints, centroids, assignment);
+
+			if (!changed || std::abs(newWCSS - currentWCSS) < 1e-6) {
+				break;
+			}
+			currentWCSS = newWCSS;
+		}
+
+		if (currentWCSS < bestWCSS) {
+			bestWCSS = currentWCSS;
+			bestPartitionMatrix = createPartitionMatrix(assignment, n, k);
+		}
+	}
+
+	return std::make_pair(bestWCSS, bestPartitionMatrix);
 }
 
 // from partition matrix to recover the cluster assignment and clustering cost

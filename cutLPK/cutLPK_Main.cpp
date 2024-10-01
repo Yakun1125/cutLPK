@@ -30,8 +30,8 @@ void printIteration(const std::vector<char>& signs, int cut_iter, double lower_b
     }
     std::cout << std::setw(5 - signs.size()) << "";
     std::cout << std::setw(5) << cut_iter
-        << std::setw(12) << std::defaultfloat << std::setprecision(4) << lower_bound
-        << std::setw(12) << std::defaultfloat << std::setprecision(4) << upper_bound
+        << std::setw(12) << std::fixed << std::setprecision(3) << lower_bound
+        << std::setw(12) << std::fixed << std::setprecision(3) << upper_bound
         << std::setw(12) << std::fixed << std::setprecision(4) << optimality_gap
         << std::setw(6) << std::fixed << std::setprecision(0) << max_T
         << std::setw(12) << cuts_active_size
@@ -82,11 +82,182 @@ KMeansClustering::KMeansClustering(const char* filename, int K) : K(K) {
     }
 }
 
+void KMeansClustering::readGroupInfo(const char* filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Unable to open file: " + std::string(filename));
+    }
+
+    std::string line;
+    std::unordered_map<int, int> groupMap;  // Maps group number to index in dataGroups
+    int numGroups = 0;  // Total number of groups found
+    std::vector<int> groupAffiliations;  // Temp storage for group affiliation of each point
+
+    // Read the file line by line
+    while (std::getline(file, line)) {
+        int group;
+        std::stringstream ss(line);
+        ss >> group;
+
+        // Check if group is new, if so, add it to the map
+        if (groupMap.find(group) == groupMap.end()) {
+            groupMap[group] = numGroups++;
+            groupRatio.push_back(0);  // Initialize ratio for new group
+        }
+
+        // Increase the ratio for this group
+        groupRatio[groupMap[group]]++;
+
+        // Add group affiliation to temporary storage
+        groupAffiliations.push_back(groupMap[group]);
+    }
+
+    // Now fill the dataGroups 2D vector based on groupAffiliations
+    int numPoints = groupAffiliations.size();
+    dataGroups.resize(numPoints, std::vector<bool>(numGroups, false));
+
+    for (int i = 0; i < numPoints; ++i) {
+        int groupIdx = groupAffiliations[i];
+        dataGroups[i][groupIdx] = true;
+    }
+
+    file.close();
+
+    //print dataGroups and groupRatio to check
+ //   for (int i = 0; i < numPoints; ++i) {
+ //       for (int j = 0; j < numGroups; ++j) {
+	//		std::cout << dataGroups[i][j] << " ";
+	//	}
+	//	std::cout << std::endl;
+	//}
+ //   for (int i = 0; i < numGroups; ++i) {
+	//	std::cout << groupRatio[i] << " ";
+	//}
+}
+
+Eigen::MatrixXd KMeansClustering::LlyodClustering(std::vector<Eigen::VectorXd>& centroids) {
+    int N = dataPoints.size();
+    Eigen::MatrixXd bestPartitionMatrix = Eigen::MatrixXd::Zero(N, N);
+    double bestWCSS = std::numeric_limits<double>::max();
+
+    // run Llyod's method until centroids are fixed
+    std::vector<int> assignment(N, 0);
+    double currentWCSS = std::numeric_limits<double>::max();
+
+    if (params.fairness_type == "group") {
+        int numGroups = groupRatio.size();
+
+        // Create environment
+        GRBEnv env = GRBEnv(true);
+        env.set(GRB_IntParam_OutputFlag, 0);
+        env.set("WLSACCESSID", "257b1c4f-526d-40dc-a072-bbc50d5ffda8");
+        env.set("WLSSECRET", "7b6bd99e-108c-4c55-9526-0b808993313f");
+        env.set("LICENSEID", "2502162");
+        env.start();
+
+        // Create an empty model
+        GRBModel model = GRBModel(env);
+        // Create variables x_{i,k}
+        std::vector<std::vector<GRBVar>> x(N, std::vector<GRBVar>(K));
+
+        try {
+
+            for (int i = 0; i < N; ++i) {
+                for (int k = 0; k < K; ++k) {
+                    x[i][k] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY,
+                        "x_" + std::to_string(i) + "_" + std::to_string(k));
+                }
+            }
+
+            // Assignment constraints: each data point assigned to exactly one cluster
+            for (int i = 0; i < N; ++i) {
+                GRBLinExpr sum_xik = 0.0;
+                for (int k = 0; k < K; ++k) {
+                    sum_xik += x[i][k];
+                }
+                model.addConstr(sum_xik == 1, "assign_" + std::to_string(i));
+            }
+
+            std::vector<double> normalized_groupRatio(numGroups, 0.0);
+
+            for (int g = 0; g < numGroups; g++) {
+                normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
+            }
+
+            // Fairness constraints
+            for (int k = 0; k < K; ++k) {
+                // Compute sum_{i=1}^N x_{i,k}
+                GRBLinExpr sum_xik = 0.0;
+                for (int i = 0; i < N; ++i) {
+                    sum_xik += x[i][k];
+                }
+
+                for (int g = 0; g < numGroups; ++g) {
+                    // sum_{i in group g} x_{i,k}
+                    GRBLinExpr sum_xikg = 0.0;
+                    for (int i = 0; i < N; ++i) {
+                        if (dataGroups[i][g]) {
+                            sum_xikg += x[i][k];
+                        }
+                    }
+
+                    // Tolerance is set as fairness_param * N
+                    double tolerance = params.fairness_param;
+
+                    // Lower bound constraint
+                    model.addConstr(sum_xikg >= (normalized_groupRatio[g] - tolerance) * sum_xik,
+                        "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
+
+                    // Upper bound constraint
+                    model.addConstr(sum_xikg <= (normalized_groupRatio[g] + tolerance) * sum_xik,
+                        "fair_ub_k" + std::to_string(k) + "_g" + std::to_string(g));
+                }
+            }
+        }
+        catch (GRBException e) {
+            std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
+            std::cout << e.getMessage() << std::endl;
+        }
+        catch (...) {
+            std::cout << "Unknown exception during optimization." << std::endl;
+        }
+
+        for (int iter = 0; iter < 10000; ++iter) {
+            bool changed = fairAssignment(model, x, dataPoints, centroids, assignment, dataGroups, groupRatio, params.fairness_param);
+            updateCentroids(dataPoints, centroids, assignment, K);
+            double newWCSS = computeWCSS(dataPoints, centroids, assignment);
+
+            if (!changed || std::abs(newWCSS - currentWCSS) < 1e-6) {
+                break;
+            }
+            currentWCSS = newWCSS;
+        }
+
+    }
+    else{
+        for (int iter = 0; iter < 10000; ++iter) {
+            bool changed = assignClusters(dataPoints, centroids, assignment);
+            updateCentroids(dataPoints, centroids, assignment, K);
+            double newWCSS = computeWCSS(dataPoints, centroids, assignment);
+
+            if (!changed || std::abs(newWCSS - currentWCSS) < 1e-6) {
+                break;
+            }
+            currentWCSS = newWCSS;
+        }
+    }
+    bestPartitionMatrix = createPartitionMatrix(assignment, N, K);
+
+    //std::cout << std::fixed << std::setprecision(6) <<" ,Llyod's method obj = " << currentWCSS << std::endl; std::cout.unsetf(std::ios_base::fixed);
+
+    return bestPartitionMatrix;
+}
+
 int KMeansClustering::Solve() {
     auto alg_start = std::chrono::high_resolution_clock::now();
 
     int N = dataPoints.size();
-    Eigen::MatrixXd dis_matrix;dis_matrix.resize(N, N);
+    Eigen::MatrixXd dis_matrix; dis_matrix.resize(N, N);
     Eigen::MatrixXd Xsol; Xsol.resize(N, N);
     Eigen::MatrixXd Lloyd_Xsol; Lloyd_Xsol.resize(N, N);
     std::vector<validInequality> cutting_planes;
@@ -102,34 +273,40 @@ int KMeansClustering::Solve() {
     }
 
 
-    
+
     LPK lp;
     // objective function, variables bounds and basic constraints
     std::vector<Eigen::Triplet<int>> triplets_basic;
-    constructLPK(lp, dis_matrix, N, K, triplets_basic);
+    if (params.fairness_type == "group") {
+		constructFairLPK(lp, dis_matrix, N, K, triplets_basic, dataGroups, groupRatio, params);
+	}
+    else {
+		constructLPK(lp, dis_matrix, N, K, triplets_basic);
+	}
+    //constructLPK(lp, dis_matrix, N, K, triplets_basic);
 
     // consMatrix for cuts
-    int cuts_idx_start = N + 1;
+    int cuts_idx_start = lp.consLb.size();
     std::vector<Eigen::Triplet<int>> triplets_cuts;
-    initializationInfo initInfo = addInitialCuts(params, N, K, cuts_idx_start, dataPoints, Lloyd_Xsol, triplets_cuts, cutting_planes);
+    initializationInfo initInfo = addInitialCuts(params, N, K, cuts_idx_start, dataPoints, dataGroups, groupRatio, Lloyd_Xsol, triplets_cuts, cutting_planes);
 
     // if output level == 2, output the initInfo to log file and print to consol; if output level == 1, only print to consol; if output level == 0, do nothing
     if (params.output_level == 2) {
-		std::ofstream logFile(params.output_file, std::ios::app);
-		logFile << "Initialization Information: " << std::endl;
-		//logFile << "Number of active cuts: " << initInfo.act_cuts_size << std::endl;
-		logFile << "Number of added cuts: " << initInfo.added_cuts_size << std::endl;
-		logFile << "Lloyd Objective: " << initInfo.Lloyd_Obj << std::endl;
-		logFile.close();
-	}
+        std::ofstream logFile(params.output_file, std::ios::app);
+        logFile << "Initialization Information: " << std::endl;
+        //logFile << "Number of active cuts: " << initInfo.act_cuts_size << std::endl;
+        logFile << "Number of added cuts: " << initInfo.added_cuts_size << std::endl;
+        logFile << "Lloyd Objective: " << initInfo.Lloyd_Obj << std::endl;
+        logFile.close();
+    }
     else if (params.output_level >= 1) {
-		std::cout << "Initialization Information: " << std::endl;
-		//std::cout << "Number of active cuts: " << initInfo.act_cuts_size << std::endl;
-		std::cout << "Number of added cuts: " << initInfo.added_cuts_size << std::endl;
-		std::cout << "Lloyd Objective: " << initInfo.Lloyd_Obj << std::endl;
-	}
+        std::cout << "Initialization Information: " << std::endl;
+        //std::cout << "Number of active cuts: " << initInfo.act_cuts_size << std::endl;
+        std::cout << "Number of added cuts: " << initInfo.added_cuts_size << std::endl;
+        std::cout << "Lloyd Objective: " << initInfo.Lloyd_Obj << std::endl;
+    }
 
-    
+
     // merge basic and cuts constraints
     std::vector<Eigen::Triplet<int>> combinedTriplets;
     combinedTriplets.reserve(triplets_basic.size() + triplets_cuts.size());
@@ -151,7 +328,7 @@ int KMeansClustering::Solve() {
     /**********************************************
      Iterative Cutting Plane Part
     **********************************************/
-    
+
     if (params.output_level >= 1) {
         printHeader();
     }
@@ -202,7 +379,7 @@ int KMeansClustering::Solve() {
         auto solver_end = std::chrono::high_resolution_clock::now();
         auto solver_time = std::chrono::duration_cast<std::chrono::milliseconds>(solver_end - solver_start);
         auto curelapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(solver_end - cutLPK_start);
-        
+
 
         if (solver_retcode > 1) {
             std::cout << "solve partial lpk failed" << std::endl;
@@ -216,16 +393,17 @@ int KMeansClustering::Solve() {
         }
         double primal_obj_improvement = (primal_obj - best_primal_obj) / (best_primal_obj);
 
-        if (primal_obj > best_primal_obj) {
+        if (primal_obj > best_primal_obj && cut_iter >= 2) {
             best_primal_obj = primal_obj;
         }
 
         Eigen::MatrixXd normMatrix = Xsol * Xsol - Xsol;
         normValue = normMatrix.norm();
 
-        if ((normValue < params.cuts_vio_tol * 10 && (Xsol-partitionMatrix).norm()>params.cuts_vio_tol) || (primal_obj_improvement < 1e-6 && improvement_failed == false)) {
+        if ((normValue < params.cuts_vio_tol * 10 && (Xsol - partitionMatrix).norm()>params.cuts_vio_tol) || (primal_obj_improvement < 1e-6 && improvement_failed == false)) {
             auto post_heuristic_start = std::chrono::high_resolution_clock::now();
-            Eigen::MatrixXd temp_partitionMatrix = postHeuristic(Xsol, dataPoints, K, 1e7);
+            std::vector<Eigen::VectorXd> temp_centroids = postHeuristic(Xsol, dataPoints, K);
+            Eigen::MatrixXd temp_partitionMatrix = LlyodClustering(temp_centroids);
             Eigen::MatrixXd cost_matrix = temp_partitionMatrix.cwiseProduct(dis_matrix);
             double temp_upper_bound = cost_matrix.sum() / 2;
             auto post_heuristic_end = std::chrono::high_resolution_clock::now();
@@ -234,16 +412,17 @@ int KMeansClustering::Solve() {
             signs.push_back('h');
 
             if (temp_upper_bound < upper_bound) {
-				upper_bound = temp_upper_bound;
+                upper_bound = temp_upper_bound;
                 if ((temp_partitionMatrix - partitionMatrix).norm() > 0.0) {
                     partitionMatrix = temp_partitionMatrix;
                 }
-			}
+            }
         }
 
         optimality_gap = (upper_bound - lower_bound) / upper_bound;
 
-        if (optimality_gap < params.opt_gap || normValue < params.cuts_vio_tol) {
+        // termination criteria
+        if (normValue < params.cuts_vio_tol) {// optimality_gap < params.opt_gap || 
             auto time_stamp2 = std::chrono::high_resolution_clock::now();
             auto stamp2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp2 - cutLPK_start);
             if (params.output_level >= 1) { printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3); }
@@ -260,9 +439,17 @@ int KMeansClustering::Solve() {
         std::vector<std::list<validInequality>> violated_cuts(max_T - 1);
         violation_size = 0;
         while (true) {
+            omp_set_num_threads(2);
             separation_scheme(Xsol, violated_cuts, max_T, N, params.max_separation_size, params.cuts_vio_tol);
+
             for (int i = 0; i < max_T - 1; ++i) {
                 violation_size += violated_cuts[i].size();
+            }
+            if (violation_size == 0 && max_T == params.t_upper_bound) {
+                exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.max_separation_size, params.cuts_vio_tol);
+                for (int i = 0; i < max_T - 1; ++i) {
+                    violation_size += violated_cuts[i].size();
+                }
             }
             if (violation_size != 0 || max_T == params.t_upper_bound) {
                 break;
@@ -282,11 +469,14 @@ int KMeansClustering::Solve() {
 
         // before constructing new lp, check stopping criteria
         tolerance_decreased = false;
+
+        bool should_break = false;
+
         if (violation_size == 0 && max_T == params.t_upper_bound) {
-            if (solver_tolerance <= params.lb_solver_tol && solver_retcode == 0) {
-                exit_status = 1;
-                break;
-			}
+            if (solver_tolerance <= params.lb_solver_tol + 1e-8 && solver_retcode == 0) {
+                exit_status = 2;
+                should_break = true;
+            }
             else {
                 if (solver_tolerance > params.lb_solver_tol + 1e-8) {
                     tolerance_decreased = true;
@@ -296,12 +486,22 @@ int KMeansClustering::Solve() {
                 if (solver_retcode == 1) {
                     solver_time_limit = params.time_limit_all;
                 }
-			}
+            }
+        }
+
+        if (should_break) {
+            auto time_stamp2 = std::chrono::high_resolution_clock::now();
+            auto stamp2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp2 - cutLPK_start);
+            printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
+            break;
         }
 
         auto time_stamp1 = std::chrono::high_resolution_clock::now();
         auto stamp1_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp1 - cutLPK_start);
         if (stamp1_duration.count() > params.time_limit_all * 1e3) {
+            auto time_stamp2 = std::chrono::high_resolution_clock::now();
+            auto stamp2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp2 - cutLPK_start);
+            printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
             exit_status = 2;
             break;
         }
@@ -312,11 +512,13 @@ int KMeansClustering::Solve() {
         std::vector<validInequality> active_cuts;
         active_cuts.reserve(cutting_planes.size());
         std::vector<Eigen::Triplet<int>> kept_cuts_triplets;
-        kept_cuts_triplets.reserve(cutting_planes.size()* (max_T + 2)); // Estimate max size
+        kept_cuts_triplets.reserve(cutting_planes.size() * (max_T + 2)); // Estimate max size
 
         int cuts_idx = 0;
         for (const auto& element : cutting_planes) {
-            if (std::abs(element.violation) < params.cuts_vio_tol) {
+            if ((cut_iter != 1 && std::abs(element.violation) < params.cuts_act_tol) ||
+                (cut_iter == 1 && std::abs(element.violation) < params.cuts_act_tol * 1e-2 && std::abs(element.dual_value) > params.cuts_act_tol)) {
+
                 active_cuts.push_back(element);
                 int newRow = cuts_idx_start + cuts_idx;
                 auto it = element.ineq_idx.begin();
@@ -346,8 +548,9 @@ int KMeansClustering::Solve() {
         cuts_active_size = cuts_idx;
 
         // sorting and adding violated cuts
-        int remaining_capacity = std::max(params.max_per_iter - cuts_idx, 0);
-        if (remaining_capacity < 100000) {
+        int remaining_capacity = std::max(params.max_cuts_per_iter - cuts_idx, 0);// add as many as possible but control the size of LP
+        remaining_capacity = std::min(remaining_capacity, params.max_cuts_added_iter);
+        if (remaining_capacity == 0) {
             remaining_capacity += 100000;
         }
         std::vector<Eigen::Triplet<int>> violated_cuts_triplets;
@@ -367,19 +570,19 @@ int KMeansClustering::Solve() {
                     violated_cuts_triplets.emplace_back(newRow, firstTerm, -1);
 
                     for (auto j = std::next(it); j != element.ineq_idx.end(); ++j) {
-						int currentJ = *j;
-						int temp_i = std::min(firstElement, currentJ);
-						int temp_j = std::max(firstElement, currentJ);
-						int indexValue = temp_i * (2 * N - temp_i + 1) / 2 + temp_j - temp_i;
-						violated_cuts_triplets.emplace_back(newRow, indexValue, 1);
+                        int currentJ = *j;
+                        int temp_i = std::min(firstElement, currentJ);
+                        int temp_j = std::max(firstElement, currentJ);
+                        int indexValue = temp_i * (2 * N - temp_i + 1) / 2 + temp_j - temp_i;
+                        violated_cuts_triplets.emplace_back(newRow, indexValue, 1);
 
                         for (auto k = std::next(j); k != element.ineq_idx.end(); ++k) {
-							int currentK = *k;
-							violated_cuts_triplets.emplace_back(newRow, currentJ * (2 * N - currentJ + 1) / 2 + currentK - currentJ, -1);
-						}
-					}
+                            int currentK = *k;
+                            violated_cuts_triplets.emplace_back(newRow, currentJ * (2 * N - currentJ + 1) / 2 + currentK - currentJ, -1);
+                        }
+                    }
                     ++cuts_idx;
-				}
+                }
             }
         }
         else {
@@ -390,16 +593,16 @@ int KMeansClustering::Solve() {
             violated_cuts_sorted.reserve(violation_size);
             for (int i = 0; i < violated_cuts.size(); i++) {
                 for (const auto& element : violated_cuts[i]) {
-					violated_cuts_sorted.push_back(element);
-				}
-			}
+                    violated_cuts_sorted.push_back(element);
+                }
+            }
             // sorting based on violation
             std::sort(violated_cuts_sorted.begin(), violated_cuts_sorted.end(), [](const validInequality& a, const validInequality& b) {
-				return a.violation < b.violation;
-			});
+                return a.violation < b.violation;
+                });
             // add remaining capacity of most violated cuts
             for (int i = 0; i < remaining_capacity; i++) {
-                added_cuts_record[violated_cuts_sorted[i].ineq_idx.size()-3] += 1;
+                added_cuts_record[violated_cuts_sorted[i].ineq_idx.size() - 3] += 1;
                 cutting_planes.push_back(violated_cuts_sorted[i]);
                 int newRow = cuts_idx_start + cuts_idx;
                 auto it = violated_cuts_sorted[i].ineq_idx.begin();
@@ -431,11 +634,11 @@ int KMeansClustering::Solve() {
         // merge active and violated cuts
 
         std::vector<Eigen::Triplet<int>> combined_cuts_triplets;
-        combined_cuts_triplets.reserve(triplets_basic.size()+kept_cuts_triplets.size() + violated_cuts_triplets.size());
+        combined_cuts_triplets.reserve(triplets_basic.size() + kept_cuts_triplets.size() + violated_cuts_triplets.size());
         combined_cuts_triplets.insert(combined_cuts_triplets.end(), triplets_basic.begin(), triplets_basic.end());
         combined_cuts_triplets.insert(combined_cuts_triplets.end(), kept_cuts_triplets.begin(), kept_cuts_triplets.end());
         combined_cuts_triplets.insert(combined_cuts_triplets.end(), violated_cuts_triplets.begin(), violated_cuts_triplets.end());
-        lp.ConsMatrix.resize(cutting_planes.size()+cons_lb_basic.size(), N* (N + 1) / 2);
+        lp.ConsMatrix.resize(cutting_planes.size() + cons_lb_basic.size(), N * (N + 1) / 2);
         lp.ConsMatrix.setFromTriplets(combined_cuts_triplets.begin(), combined_cuts_triplets.end());
         std::vector<Eigen::Triplet<int>>().swap(kept_cuts_triplets);
         std::vector<Eigen::Triplet<int>>().swap(violated_cuts_triplets);
@@ -453,52 +656,53 @@ int KMeansClustering::Solve() {
 
         // update some parameters
         // consider decrase the tolerance
-        if ((optimality_gap < params.opt_gap * 10 || normValue < params.cuts_vio_tol*10) && tolerance_decreased == false) {//&& improvement < 1e-6 && t_increased == false
-            // if we are approaching optimum
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+        if (tolerance_decreased == false && solver_tolerance > params.lb_solver_tol + 1e-8 && current_lb < lower_bound) {
+            if (optimality_gap < params.opt_gap * 10 || normValue < params.cuts_vio_tol * 10) {
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
             }
-        }
-
-        if (((upper_bound-best_primal_obj)/upper_bound) < params.opt_gap && tolerance_decreased == false) {
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+            else if (optimality_gap < params.opt_gap * 100 && ((upper_bound - best_primal_obj) / upper_bound) < 1e-8) {
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
             }
-        }
-
-        if (improvement_failed == true && primal_obj_improvement < 1e-6 && max_T == params.t_upper_bound && tolerance_decreased == false) {
-            // if there are two consecutive iterations with no improvement, we decrease the tolerance
-            if (solver_tolerance > params.lb_solver_tol + 1e-8) {
+            else if (best_primal_obj > upper_bound && cut_iter >= 3) {
                 solver_tolerance = solver_tolerance * 0.01;
                 tolerance_decreased = true;
                 signs.push_back('!');
             }
-        }
-
-        if (primal_obj_improvement < 1e-6) {
-            improvement_failed = true;
-        }
-        else {
-            improvement_failed = false;
+            else if (improvement_failed == true && primal_obj_improvement < 1e-6 && max_T == params.t_upper_bound) {
+                solver_tolerance = solver_tolerance * 0.01;
+                tolerance_decreased = true;
+                signs.push_back('!');
+            }
         }
 
         // consider increase time limit
         if (cut_iter >= 3) {
-            if (solver_retcode_record[cut_iter - 1] == 1 && solver_retcode_record[cut_iter - 2] == 1 && solver_time_limit_increased == false) {
-                solver_time_limit += params.time_limit_lp * 0.5;
+            if (solver_retcode_record[cut_iter - 1] == 1 && solver_retcode_record[cut_iter - 2] == 1) {
+                if (solver_time_limit_increased == true) {
+                    solver_time_limit += params.time_limit_lp;
+                }
+                else {
+                    solver_time_limit += params.time_limit_lp * 0.5;
+                }
+                solver_time_limit_increased = true;
+                signs.push_back('#');
+            }
+            else if (solver_retcode_record[cut_iter - 1] == 1 && (best_primal_obj > upper_bound || optimality_gap < params.opt_gap * 10)) {
+                if (solver_time_limit_increased == true) {
+                    solver_time_limit += params.time_limit_lp;
+                }
+                else {
+                    solver_time_limit += params.time_limit_lp * 0.5;
+                }
                 solver_time_limit_increased = true;
                 signs.push_back('#');
             }
             else {
-                if (solver_retcode_record[cut_iter - 1] == 1 && (best_primal_obj > upper_bound || optimality_gap < params.opt_gap * 10)) {
-                    solver_time_limit += params.time_limit_lp * 0.5;
-                    solver_time_limit_increased = true;
-                    signs.push_back('#');
-                }
+                solver_time_limit_increased = false;
             }
         }
 
@@ -512,7 +716,13 @@ int KMeansClustering::Solve() {
                 t_increased_record[cut_iter - 1] = t_increased;
                 signs.push_back('+');
             }
-            else if (violation_size < 0.1 * cuts_active_size && best_primal_obj < upper_bound && primal_obj_improvement < 1e-6) {
+            else if (violation_size < 0.01 * cuts_active_size && primal_obj_improvement < 1e-6) {
+                max_T++;
+                t_increased = true;
+                t_increased_record[cut_iter - 1] = t_increased;
+                signs.push_back('+');
+            }
+            else if (violation_size < 0.005 * cuts_active_size) {
                 max_T++;
                 t_increased = true;
                 t_increased_record[cut_iter - 1] = t_increased;
@@ -528,6 +738,13 @@ int KMeansClustering::Solve() {
             t_increased_record[cut_iter - 1] = t_increased;
         }
 
+        if (primal_obj_improvement < 1e-6) {
+            improvement_failed = true;
+        }
+        else {
+            improvement_failed = false;
+        }
+
         // print info
         auto time_stamp3 = std::chrono::high_resolution_clock::now();
         auto stamp3_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp3 - cutLPK_start);
@@ -538,18 +755,19 @@ int KMeansClustering::Solve() {
     auto elpased_time = std::chrono::duration_cast<std::chrono::milliseconds>(cutLPK_end - alg_start);
     double time_used = elpased_time.count() / 1e3;
     std::cout << std::string(115, '=') << std::endl;
-    std::cout << std::defaultfloat;
-    std::cout << "cutting plane solved the problem in " << cut_iter << " iterations with " << time_used << " seconds" << std::endl;
+    std::cout << std::defaultfloat << "cutting plane solved the problem in " << cut_iter << " iterations with " << time_used << " seconds" << std::endl;
     std::cout << "status: " << exit_status << std::endl;
-    std::cout <<  "relative gap: "<<optimality_gap<<std::endl;
-    std::cout <<  "obj: " << upper_bound << std::endl;
+    std::cout << "relative gap: " << optimality_gap << std::endl;
+    Eigen::MatrixXd normMatrix = Xsol * Xsol - Xsol;
+    normValue = normMatrix.norm();
+    std::cout << "norm value: " << normValue << std::endl;
+    std::cout << "obj: " << std::fixed << std::setprecision(4) << upper_bound << std::endl;
+    std::cout << std::defaultfloat;
     //std::cout << " Kmeans++ sol same as final sol: " << (Lloyd_Xsol - partitionMatrix).norm() << std::endl;
     std::cout << "added cuts record: ";
     for (int i = 0; i < params.t_upper_bound - 1; ++i) {
         std::cout << "t = " << i + 2 << ": " << added_cuts_record[i] << " ";
     }
 
-    return 0;
+    return exit_status;
 }
-
-

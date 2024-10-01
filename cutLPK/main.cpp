@@ -10,12 +10,38 @@ int main(int argc, char* argv[]) {
 	int K = std::stoi(argv[2]);
 
 	KMeansClustering kmeans(dataFile, K);
+	kmeans.readGroupInfo("sensitive_feature.csv");
+
 	kmeans.setDefaultParams();
 
-	for (int i = 3; i < argc; i++) {
+	//kmeans.LlyodClustering();
+	//return 1;
+
+	// if read extra parameters from command line
+	int nextArgIndex = 3;
+
+	for (int i = nextArgIndex; i < argc; i++) {
 		std::string arg = argv[i];
 		std::string param_name = arg.substr(1, arg.find('=') - 1);
 		std::string param_value = arg.substr(arg.find('=') + 1);
+
+		//if (param_name == "fair_version") {
+		//	i = i + 1;
+		//	if (param_value == "group_fair") {
+		//		const char* groupInfoFile = argv[i];
+		//		try {
+		//			//kmeans.readGroupInfo(groupInfoFile);
+		//		}
+		//		catch (const std::exception& e) {
+		//			std::cerr << "Error reading group info: " << e.what() << std::endl;
+		//			return 1;
+		//		}
+		//	}
+		//	else {
+		//		std::cerr << "Invalid fairness version: " << param_value << std::endl;
+		//		return 1;
+		//	}
+		//}
 
 		if (param_name == "solver") {
 			kmeans.params.solver = param_value;
@@ -29,11 +55,14 @@ int main(int argc, char* argv[]) {
 		else if (param_name == "random_seed") {
 			kmeans.params.random_seed = std::stoi(param_value);
 		}
-		else if (param_name == "max_init") {
-			kmeans.params.max_init = std::stod(param_value);
+		else if (param_name == "max_cuts_init") {
+			kmeans.params.max_cuts_init = std::stod(param_value);
 		}
-		else if (param_name == "max_per_iter") {
-			kmeans.params.max_per_iter = std::stod(param_value);
+		else if (param_name == "max_cuts_per_iter") {
+			kmeans.params.max_cuts_per_iter = std::stod(param_value);
+		}
+		else if (param_name == "max_cuts_added_iter") {
+			kmeans.params.max_cuts_added_iter = std::stod(param_value);
 		}
 		else if (param_name == "max_separation_size") {
 			kmeans.params.max_separation_size = std::stod(param_value);
@@ -70,6 +99,12 @@ int main(int argc, char* argv[]) {
 		}
 		else if (param_name == "opt_gap") {
 			kmeans.params.opt_gap = std::stod(param_value);
+		}
+		else if (param_name == "fairness_type") {
+			kmeans.params.fairness_type = param_value;
+		}
+		else if (param_name == "fairness_param") {
+			kmeans.params.fairness_param = std::stod(param_value);
 		}
 		else {
 			std::cerr << "Invalid parameter name: " << param_name << std::endl;

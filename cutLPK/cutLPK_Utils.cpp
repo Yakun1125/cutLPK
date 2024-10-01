@@ -1,4 +1,5 @@
 ﻿#include "cutLPK_Utils.h"
+#include <chrono>
 
 namespace pdlp = ::operations_research::pdlp;
 
@@ -6,7 +7,7 @@ void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::vecto
 	lp.N = N;
 	int numVars = N * (N + 1) / 2;
 	lp.varLb = std::vector<double>(numVars, 0.0);
-	lp.varUb = std::vector<double>(numVars, kInfinity);
+	lp.varUb = std::vector<double>(numVars, 1.0);
 	lp.objCoef = std::vector<double>(numVars, 0.0);
 	Eigen::SparseMatrix<double, Eigen::ColMajor> ConsMatrix;// constraint matrix
 	int index = 0; // index mapping logic is (i,j) j>i index = i*(2*N-i+1)/2+j-i
@@ -37,18 +38,23 @@ void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::vecto
 }
 
 initializationInfo addInitialCuts(const parameters& params, int N, int K, int cuts_idx_start,
-	const std::vector<Eigen::VectorXd>& dataPoints, Eigen::MatrixXd& Lloyd_Xsol, std::vector<Eigen::Triplet<int>>& cuts_triplets, std::vector<validInequality>& cuts) {
+	const std::vector<Eigen::VectorXd>& dataPoints, const std::vector<std::vector<bool>>& dataGroups, const std::vector<int>& groupRatio, Eigen::MatrixXd& Lloyd_Xsol, std::vector<Eigen::Triplet<int>>& cuts_triplets, std::vector<validInequality>& cuts) {
 	initializationInfo initInfo;
 	
 	unsigned long long totalCombinations = static_cast<unsigned long long>(N) * (N - 1) * (N - 2) / 2;
-	int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.max_init)));
+	int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.max_cuts_init)));
 	cuts.reserve(initial_size);
 	cuts_triplets.reserve(4 * initial_size);
 	double KmeansPlusPlus_Cost = kInfinity;
 
 	// timing this part
 	auto start = std::chrono::high_resolution_clock::now();
-	std::tie(KmeansPlusPlus_Cost, Lloyd_Xsol) = runKMeans(dataPoints, K, 100000, 50, params.random_seed);
+	if (params.fairness_type == "group") {
+		std::tie(KmeansPlusPlus_Cost, Lloyd_Xsol) = runFairKMeans(dataPoints, K, 100000, 1, params.random_seed, dataGroups, groupRatio, params.fairness_param);
+	}
+	else {
+		std::tie(KmeansPlusPlus_Cost, Lloyd_Xsol) = runKMeans(dataPoints, K, 100000, 50, params.random_seed);
+	}
 	auto end = std::chrono::high_resolution_clock::now();
 	initInfo.Lloyd_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	initInfo.Lloyd_Obj = KmeansPlusPlus_Cost;
@@ -61,7 +67,7 @@ initializationInfo addInitialCuts(const parameters& params, int N, int K, int cu
 	// timeing Identify cuts
 	start = std::chrono::high_resolution_clock::now();
 	if (params.warm_start == 1) {
-		int size_each_i = params.max_init / N;// when problem size is large, we added first size_each_i triangle inequalities for each i,j 
+		int size_each_i = params.max_cuts_init / N;// when problem size is large, we added first size_each_i triangle inequalities for each i,j 
 		for (int i = 0; i < N; i++) {
 			int added_count_i = 0;
 			for (int j = 0; j < N; j++) {
@@ -132,7 +138,7 @@ initializationInfo addInitialCuts(const parameters& params, int N, int K, int cu
 	return initInfo;
 }
 
-int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, std::vector<validInequality>& cuts, const LPK& lp, float tolerance, float time_limit) {
+int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, std::vector<validInequality>& cuts, LPK& lp, float tolerance, float time_limit) {
 	cupdlp_retcode retcode = RETCODE_OK;
 
 	HighsModel highs;
@@ -145,17 +151,17 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	// Reserve space for the total number of non-zero elements, extract the constraint matrix
 	_index.reserve(lp.ConsMatrix.nonZeros());
 	value.reserve(lp.ConsMatrix.nonZeros());
-	start.push_back(0); 
+	start.push_back(0);
 	for (int k = 0; k < lp.ConsMatrix.outerSize(); ++k) {
-		int colStart = lp.ConsMatrix.outerIndexPtr()[k]; 
-		int colEnd = lp.ConsMatrix.outerIndexPtr()[k + 1]; 
+		int colStart = lp.ConsMatrix.outerIndexPtr()[k];
+		int colEnd = lp.ConsMatrix.outerIndexPtr()[k + 1];
 
 		for (int idx = colStart; idx < colEnd; ++idx) {
-			_index.push_back(lp.ConsMatrix.innerIndexPtr()[idx]); 
+			_index.push_back(lp.ConsMatrix.innerIndexPtr()[idx]);
 			value.push_back(lp.ConsMatrix.valuePtr()[idx]);
 		}
 
-		start.push_back(colEnd); 
+		start.push_back(colEnd);
 	}
 
 	// Add variables to the model
@@ -175,9 +181,10 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	model->setOptionValue("log_to_console", false);
 	model->passModel(highs);
 
+
 	/*********************************
-     Start PDLP part
-    **********************************/
+	 Start PDLP part
+	**********************************/
 	int nCols_pdlp = 0;
 	int nRows_pdlp = 0;
 	int nEqs_pdlp = 0;
@@ -269,7 +276,7 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 		&nCols_org, &constraint_new_idx, &constraint_type));
 	CUPDLP_CALL(Init_Scaling(scaling, nCols_pdlp, nRows_pdlp, cost, rhs));
 	// the work object needs to be established first
-    // free inside cuPDLP
+	// free inside cuPDLP
 	CUPDLP_INIT_ZERO(w, 1);
 
 #if !(CUPDLP_CPU)
@@ -334,9 +341,9 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 		&status_pdlp));
 
 	/*****************************************************
-     Update Xsol and dual value for next lpk construction
-    ******************************************************/
-    // Report the Xsol
+	 Update Xsol and dual value for next lpk construction
+	******************************************************/
+	// Report the Xsol
 	col_idx = 0;
 	for (int i = 0; i < lp.N; ++i) {
 		for (int j = i; j < lp.N; ++j) {
@@ -352,16 +359,17 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	r = lp.ConsMatrix * Eigen::VectorXd::Map(col_value_org, numVars);
 
 	// go through last numCuts of r, which is the residual of the cuts
-    for (int i = 0; i < numCuts; ++i) {
+	for (int i = 0; i < numCuts; ++i) {
 		cuts[i].violation = r[cuts_idx_start + i];
+		cuts[i].dual_value = row_dual_org[cuts_idx_start + i];
 	}
 
 
 	// dual constraints residual
-    // compute vector r by r = ConsMatrix^T * row_dual_org(every row) - obj_coef
-    //r = Eigen::VectorXd::Map(obj_coef.data(), obj_coef.size());
-    //row_dual_org_vec = Eigen::VectorXd::Map(row_dual_org, numConstr);
-    //r -= ConsMatrix.transpose() * row_dual_org_vec;
+		// compute vector r by r = ConsMatrix^T * row_dual_org(every row) - obj_coef
+		// r = Eigen::VectorXd::Map(obj_coef.data(), obj_coef.size());
+		// row_dual_org_vec = Eigen::VectorXd::Map(row_dual_org, numConstr);
+		// r -= ConsMatrix.transpose() * row_dual_org_vec;
 
 	//debug  this part, print size info
 
@@ -373,6 +381,16 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	for (int i = 1; i < lp.N + 1; i++) {
 		dual_value_sum += row_dual_org[i];
 	}
+
+	for (int i = lp.N + 1; i < cuts_idx_start; i++) {
+		if (row_dual_org[i] > 0) {
+			dual_value_sum += row_dual_org[i] * lp.consLb[i];
+		}
+		else {
+			dual_value_sum += row_dual_org[i] * lp.consUb[i];
+		}
+	}
+
 
 	col_idx = 0;
 	for (int i = 0; i < lp.N; ++i) {
@@ -388,23 +406,17 @@ int solver_cupdlp(double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol, s
 	// clean all local var: r and row_dual_org_vec
 	r.resize(0);
 	row_dual_org_vec.resize(0);
-	if (w->resobj->termIterate == LAST_ITERATE) {
-		//*dual_obj = w->resobj->dDualObj;
-		primal_obj = w->resobj->dPrimalObj;
-	}
-	else {
-		//*dual_obj = w->resobj->dDualObjAverage;
-		primal_obj = w->resobj->dPrimalObjAverage;
-	}
-	if (w->resobj->termCode == OPTIMAL) {
+
+	primal_obj = Eigen::VectorXd::Map(lp.objCoef.data(), lp.objCoef.size()).dot(Eigen::VectorXd::Map(col_value_org, numVars));
+	if (status_pdlp == 0) {
 		return_code = 0;
 	}
-	else if (w->resobj->termCode == TIMELIMIT_OR_ITERLIMIT) {
+	else if (status_pdlp == 4) {// 4 means time limit reached and it's acceptable
 		return_code = 1;
 	}
 	else {
+		// print termCode
 		return_code = 2;
-	
 	}
 	dual_obj = dual_value_sum;
 
@@ -415,6 +427,7 @@ exit_cleanup:
 	if (col_dual_org != NULL) cupdlp_free(col_dual_org);
 	if (row_value_org != NULL) cupdlp_free(row_value_org);
 	if (row_dual_org != NULL) cupdlp_free(row_dual_org);
+
 
 	// free problem
 	if (scaling) {
@@ -438,7 +451,7 @@ exit_cleanup:
 	return return_code;
 }
 
-Eigen::MatrixXd postHeuristic(const Eigen::MatrixXd& Xsol, const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations) {
+std::vector<Eigen::VectorXd> postHeuristic(const Eigen::MatrixXd& Xsol, const std::vector<Eigen::VectorXd>& dataPoints, int k) {
 	int N = dataPoints.size();
 	// compute best rank-k approximation X_k for Xsol
 	Eigen::SelfAdjointEigenSolver<Eigen::SparseMatrix<double>> eigensolver(Eigen::SparseMatrix<double>(Xsol.sparseView()));
@@ -490,28 +503,7 @@ Eigen::MatrixXd postHeuristic(const Eigen::MatrixXd& Xsol, const std::vector<Eig
 		centroids.push_back(centroid);
 	}
 
-
-	Eigen::MatrixXd bestPartitionMatrix = Eigen::MatrixXd::Zero(N, N);
-	double bestWCSS = std::numeric_limits<double>::max();
-
-	// run Llyod's method until centroids are fixed
-	std::vector<int> assignment(N, 0);
-	double currentWCSS = std::numeric_limits<double>::max();
-	for (int iter = 0; iter < maxIterations; ++iter) {
-		bool changed = assignClusters(dataPoints, centroids, assignment);
-		updateCentroids(dataPoints, centroids, assignment, k);
-		double newWCSS = computeWCSS(dataPoints, centroids, assignment);
-
-		if (!changed || std::abs(newWCSS - currentWCSS) < 1e-6) {
-			break;
-		}
-		currentWCSS = newWCSS;
-	}
-	bestPartitionMatrix = createPartitionMatrix(assignment, N, k);
-
-	//std::cout << std::fixed << std::setprecision(6) <<" ,Llyod's method obj = " << currentWCSS << std::endl; std::cout.unsetf(std::ios_base::fixed);
-
-	return bestPartitionMatrix;
+	return centroids;
 }
 
 void separation_scheme(const Eigen::MatrixXd& Xsol, std::vector<std::list<validInequality>>& violated_cuts, int max_T, int N, int maxSize, double cuts_vio_tol) {
@@ -570,6 +562,63 @@ void separation_scheme(const Eigen::MatrixXd& Xsol, std::vector<std::list<validI
 						break;
 					}
 				}
+			}
+		}
+	}
+}
+
+void extend_chain(int source, const Eigen::MatrixXd& Xsol, std::vector<int>& chain, double current_cost,
+	const int N, const int max_T, double cuts_vio_tol,
+	std::vector<std::list<validInequality>>& violated_cuts, int& max_list_size, const int max_init) {
+	if (chain.size() >= max_T || max_list_size >= max_init) {
+		return;
+	}
+
+	int last_node = chain.back();
+	for (int next = last_node + 1; next < N; ++next) {
+		if (next == source) continue;
+
+		double additional_cost = 0.0;
+		for (int k : chain) {
+			if (k < next) {
+				additional_cost += Xsol(k, next);
+			}
+		}
+		double next_cost = current_cost + Xsol(source, next) - additional_cost;
+
+		if (next_cost > cuts_vio_tol) {
+#pragma omp critical
+			{
+				if (max_list_size < max_init) {
+					std::list<int> recording_chain(chain.begin(), chain.end());
+					recording_chain.push_back(next);
+					recording_chain.push_front(source);
+					violated_cuts[recording_chain.size() - 3].push_back(validInequality(recording_chain, next_cost));
+					max_list_size++;
+				}
+			}
+		}
+
+		chain.push_back(next);
+		extend_chain(source, Xsol, chain, next_cost, N, max_T, cuts_vio_tol, violated_cuts, max_list_size, max_init);
+		chain.pop_back();
+	}
+}
+
+void exact_separation_scheme(const Eigen::MatrixXd& Xsol, std::vector<std::list<validInequality>>& violated_cuts,
+	int max_T, int N, int max_init, double cuts_vio_tol) {
+	int max_list_size = 0;
+	std::vector<int> chain;
+	chain.reserve(max_T);
+
+#pragma omp parallel for shared(violated_cuts, max_list_size) firstprivate(chain)
+	for (int source = 0; source < N; ++source) {
+		for (int j = 0; j < N; ++j) {
+			if (j != source) {
+				chain.clear();
+				chain.push_back(j);
+				double initial_cost = -Xsol(source, source) + Xsol(source, j);
+				extend_chain(source, Xsol, chain, initial_cost, N, max_T, cuts_vio_tol, violated_cuts, max_list_size, max_init);
 			}
 		}
 	}
