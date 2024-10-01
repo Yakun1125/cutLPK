@@ -10,12 +10,10 @@ int main(int argc, char* argv[]) {
 	int K = std::stoi(argv[2]);
 
 	KMeansClustering kmeans(dataFile, K);
-	kmeans.readGroupInfo("sensitive_feature.csv");
+	
+	const char* fairFile = "";
 
 	kmeans.setDefaultParams();
-
-	//kmeans.LlyodClustering();
-	//return 1;
 
 	// if read extra parameters from command line
 	int nextArgIndex = 3;
@@ -24,24 +22,6 @@ int main(int argc, char* argv[]) {
 		std::string arg = argv[i];
 		std::string param_name = arg.substr(1, arg.find('=') - 1);
 		std::string param_value = arg.substr(arg.find('=') + 1);
-
-		//if (param_name == "fair_version") {
-		//	i = i + 1;
-		//	if (param_value == "group_fair") {
-		//		const char* groupInfoFile = argv[i];
-		//		try {
-		//			//kmeans.readGroupInfo(groupInfoFile);
-		//		}
-		//		catch (const std::exception& e) {
-		//			std::cerr << "Error reading group info: " << e.what() << std::endl;
-		//			return 1;
-		//		}
-		//	}
-		//	else {
-		//		std::cerr << "Invalid fairness version: " << param_value << std::endl;
-		//		return 1;
-		//	}
-		//}
 
 		if (param_name == "solver") {
 			kmeans.params.solver = param_value;
@@ -106,11 +86,20 @@ int main(int argc, char* argv[]) {
 		else if (param_name == "fairness_param") {
 			kmeans.params.fairness_param = std::stod(param_value);
 		}
+		else if (param_name == "fair_info") {
+			fairFile = param_value.c_str();
+		}
 		else {
 			std::cerr << "Invalid parameter name: " << param_name << std::endl;
 			return 1;
 		}
 	}
+
+
+	if (kmeans.params.fairness_type != "none") {
+		kmeans.readGroupInfo(fairFile);
+	}
+	//kmeans.LlyodClustering();
 
 	return kmeans.Solve();
 
