@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
 
 	KMeansClustering kmeans(dataFile, K);
 	
-	const char* fairFile = "";
+	std::string fairFile = "";
 
 	kmeans.setDefaultParams();
 
@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
 			kmeans.params.fairness_param = std::stod(param_value);
 		}
 		else if (param_name == "fair_info") {
-			fairFile = param_value.c_str();
+			fairFile = param_value;
 		}
 		else {
 			std::cerr << "Invalid parameter name: " << param_name << std::endl;
@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
 
 
 	if (kmeans.params.fairness_type != "none") {
-		kmeans.readGroupInfo(fairFile);
+		kmeans.readGroupInfo(fairFile.c_str());
 	}
 	//kmeans.LlyodClustering();
 
