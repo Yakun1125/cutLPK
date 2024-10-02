@@ -290,6 +290,29 @@ int KMeansClustering::Solve() {
     std::vector<Eigen::Triplet<int>> triplets_cuts;
     initializationInfo initInfo = addInitialCuts(params, N, K, cuts_idx_start, dataPoints, dataGroups, groupRatio, Lloyd_Xsol, triplets_cuts, cutting_planes);
 
+    if (params.fairness_type == "group") {
+        // cout normalized group ratio
+        std::vector<double> normalized_groupRatio(groupRatio.size(), 0.0);
+        for (int g = 0; g < groupRatio.size(); g++) {
+			normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
+		}
+        std::cout << "Normalized group ratio: ";
+        for (int g = 0; g < groupRatio.size(); g++) {
+			std::cout << normalized_groupRatio[g] << " ";
+		}
+        std::cout << std::endl;
+
+        std::vector<std::vector<double>> cluster_ratio = computeRatio(Lloyd_Xsol, dataGroups);
+        // print out group ratio for each cluster:
+        for (int i = 0; i < K; ++i) {
+            std::cout << "cluster " << i << ": ";
+            for (int j = 0; j < cluster_ratio[i].size(); ++j) {
+                std::cout << cluster_ratio[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
     // if output level == 2, output the initInfo to log file and print to consol; if output level == 1, only print to consol; if output level == 0, do nothing
     if (params.output_level == 2) {
         std::ofstream logFile(params.output_file, std::ios::app);
@@ -763,6 +786,18 @@ int KMeansClustering::Solve() {
     std::cout << "norm value: " << normValue << std::endl;
     std::cout << "obj: " << std::fixed << std::setprecision(4) << upper_bound << std::endl;
     std::cout << std::defaultfloat;
+
+	if (params.fairness_type == "group") {
+		std::vector<std::vector<double>> cluster_ratio = computeRatio(partitionMatrix, dataGroups);
+		// print out group ratio for each cluster:
+		for (int i = 0; i < K; ++i) {
+			std::cout << "cluster " << i << ": ";
+			for (int j = 0; j < cluster_ratio[i].size(); ++j) {
+				std::cout << cluster_ratio[i][j] << " ";
+			}
+			std::cout << std::endl;
+		}
+	}	
     //std::cout << " Kmeans++ sol same as final sol: " << (Lloyd_Xsol - partitionMatrix).norm() << std::endl;
     std::cout << "added cuts record: ";
     for (int i = 0; i < params.t_upper_bound - 1; ++i) {
