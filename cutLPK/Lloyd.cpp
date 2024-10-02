@@ -325,3 +325,50 @@ double KMeansObj(const Eigen::SparseMatrix<double>& Xsol, const Eigen::MatrixXd&
 	}
 	return sum;
 }
+
+std::vector<std::vector<double>> computeRatio(const Eigen::MatrixXd& Xsol,
+	const std::vector<std::vector<bool>>& dataGroups) {
+
+	int n = Xsol.rows();
+	int numGroups = dataGroups[0].size();
+
+	std::vector<int> assignment(n, -1);
+	int numClusters = 0;
+
+	// Assign clusters
+	for (int i = 0; i < n; ++i) {
+		if (assignment[i] != -1) continue;
+
+		assignment[i] = numClusters;
+		for (int j = i + 1; j < n; ++j) {
+			if (Xsol(i, j) > 0) {
+				assignment[j] = numClusters;
+			}
+		}
+		numClusters++;
+	}
+
+	// Initialize group ratios
+	std::vector<std::vector<double>> groupRatios(numClusters, std::vector<double>(numGroups, 0.0));
+	std::vector<int> clusterSizes(numClusters, 0);
+
+	// Compute group counts and cluster sizes
+	for (int i = 0; i < n; ++i) {
+		int cluster = assignment[i];
+		clusterSizes[cluster]++;
+		for (int group = 0; group < numGroups; ++group) {
+			if (dataGroups[i][group]) {
+				groupRatios[cluster][group]++;
+			}
+		}
+	}
+
+	// Compute ratios
+	for (int cluster = 0; cluster < numClusters; ++cluster) {
+		for (int group = 0; group < numGroups; ++group) {
+			groupRatios[cluster][group] /= clusterSizes[cluster];
+		}
+	}
+
+	return groupRatios;
+}
