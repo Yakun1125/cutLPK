@@ -17,3 +17,4 @@ Eigen::MatrixXd createPartitionMatrix(const std::vector<int>& assignment, int n,
 std::pair<double, Eigen::MatrixXd> runKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations, int numTrials, int random_seed);
 std::pair<double, Eigen::MatrixXd> runFairKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations, int numTrials, int random_seed, const std::vector<std::vector<bool>>& dataGroups, const std::vector<int>& groupRatio, double fairness_param);
 double KMeansObj(const Eigen::SparseMatrix<double>& Xsol, const Eigen::MatrixXd& dis_matrix, int N);
+std::vector<std::vector<double>> computeRatio(const Eigen::MatrixXd& Xsol, const std::vector<std::vector<bool>>& dataGroups);
