@@ -30,8 +30,8 @@ void printIteration(const std::vector<char>& signs, int cut_iter, double lower_b
     }
     std::cout << std::setw(5 - signs.size()) << "";
     std::cout << std::setw(5) << cut_iter
-        << std::setw(12) << std::fixed << std::setprecision(3) << lower_bound
-        << std::setw(12) << std::fixed << std::setprecision(3) << upper_bound
+        << std::setw(12) << std::scientific << std::setprecision(3) << lower_bound
+        << std::setw(12) << std::scientific << std::setprecision(3) << upper_bound
         << std::setw(12) << std::fixed << std::setprecision(4) << optimality_gap
         << std::setw(6) << std::fixed << std::setprecision(0) << max_T
         << std::setw(12) << cuts_active_size
