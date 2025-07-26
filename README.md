@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="cutLPK.png" alt="cutLPK Logo" width="600"/>
+  <img src="cutLPK.png" alt="cutLPK Logo" width="300"/>
 </p>
 A scalable linear programming framework for solving K-Means, Fair K-Means, and Spectral Clustering problems. This project implements a cutting-plane algorithm that utilizing and LP relaxation to solving clustering problems globally, as detailed in [arXiv preprint coming soon].
 
