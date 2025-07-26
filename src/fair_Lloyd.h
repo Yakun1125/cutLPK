@@ -1,0 +1,38 @@
+#pragma once
+#include "Lloyd.h"
+#include "gurobi_c++.h"
+#include <memory> 
+#include <numeric>
+/*
+Most functions can be inherent from Lloyd
+We need to adjust the assignment and main iteration
+*/
+void setupGurobiWLS(GRBEnv& env);
+
+double find_simplified_fraction(int numerator, int denominator, double target_factor);
+
+double find_simplified_fraction_Tau(int numerator, int K, double target_factor);
+
+std::vector<double> alpha_fairParam_adjustment(const std::vector<int>& groupRatio, double fairness_param, int N);
+
+std::vector<double> tau_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K);
+
+std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_buildFairAssignmentModel(GRBEnv& env, int numClusters,
+    int numGroups,
+    const std::vector<std::vector<bool>>& dataGroups,
+    const std::vector<int>& groupRatio,
+    std::vector<double> fairness_param);
+
+std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_buildTauFairAssignmentModel(GRBEnv& env, int numClusters,
+    int numGroups,
+    const std::vector<std::vector<bool>>& dataGroups,
+    const std::vector<int>& groupRatio,
+    std::vector<double> fairness_param);
+
+bool GRB_fairAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, 
+    std::vector<int>& assignment, GRBModel& model,std::vector<std::vector<GRBVar>>& x);
+
+std::pair<double, std::vector<int>> runFairKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations,
+     int random_seed, GRBModel& model,std::vector<std::vector<GRBVar>>& x);
+
+

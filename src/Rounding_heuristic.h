@@ -1,0 +1,72 @@
+#pragma once
+#include "Lloyd.h"
+#include "fair_Lloyd.h"
+#include "Utils_Struct.h"
+#include <Eigen/Dense>
+#include <Eigen/Sparse>
+#include <Eigen/Eigenvalues>
+#include "gurobi_c++.h"
+
+class RoundingHeuristic {
+private:
+    // Data for clustering
+    const std::vector<Eigen::VectorXd>& dataPoints;
+    const Eigen::MatrixXd& dis_matrix;
+    
+    // Solution matrix
+    Eigen::MatrixXd& Xsol;
+    int k; // Number of clusters
+    bool is_fair_clustering = false;
+    bool is_spectral_clustering = false;
+    
+    // Gurobi model (references to existing model)
+    GRBModel* gurobi_model;
+    std::vector<std::vector<GRBVar>>* x_vars;
+    
+    // Results
+    std::vector<Eigen::VectorXd> final_centroids;
+    std::vector<int> final_assignment;
+    double final_objective;
+
+public:
+    // RoundingHeuristic() = default;
+
+    // Constructor for fair clustering (using existing Gurobi model)
+    RoundingHeuristic(const std::vector<Eigen::VectorXd>& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, Eigen::MatrixXd& Xsol,
+                      GRBModel* model, std::vector<std::vector<GRBVar>>* x_vars)
+        : dataPoints(dataPoints), dis_matrix(dis_matrix), Xsol(Xsol), k(k), is_fair_clustering(true), 
+          gurobi_model(model), x_vars(x_vars) {}
+
+    // Constructor for regular clustering
+    RoundingHeuristic(const std::vector<Eigen::VectorXd>& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, 
+                      Eigen::MatrixXd& Xsol)
+        : dataPoints(dataPoints), dis_matrix(dis_matrix), Xsol(Xsol), k(k), is_fair_clustering(false), 
+          gurobi_model(nullptr), x_vars(nullptr) {}
+
+    // constructor for spectral clustering, leave dataPoints empty
+    RoundingHeuristic(const Eigen::MatrixXd& dis_matrix, int k, Eigen::MatrixXd& Xsol)
+        : dataPoints(std::vector<Eigen::VectorXd>()), dis_matrix(dis_matrix), Xsol(Xsol), k(k), 
+          is_fair_clustering(false), is_spectral_clustering(true), gurobi_model(nullptr), x_vars(nullptr) {}
+
+    // Set solution matrix
+    void setSolutionMatrix(Eigen::MatrixXd& X) { Xsol = X; }
+    
+    // Main method to run the rounding heuristic
+    bool run(int maxIterations = 10000);
+    
+    // Get results
+    const std::vector<Eigen::VectorXd>& getFinalCentroids() const { return final_centroids; }
+    const std::vector<int>& getFinalAssignment() const { return final_assignment; }
+    Eigen::MatrixXd getFinalMatrix(){
+        return createPartitionMatrix(final_assignment, k);
+    }
+    double getFinalObjective();// const { return final_objective; }
+
+private:
+    // Helper methods
+    Eigen::MatrixXd computeTopKEigenvectors();
+    std::vector<Eigen::VectorXd> generateInitialCentroids(const Eigen::MatrixXd& X_k);
+    bool runFairLloydWithGurobi(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations);
+    bool runRegularLloyd(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations);
+    bool spectralRounding();
+};
