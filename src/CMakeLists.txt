@@ -6,6 +6,8 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -march=native")
 endif()
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 project(cutLPK) # LANGUAGES CXX CUDA
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/config.cmake)
@@ -113,6 +115,37 @@ endif()
 message(NOTICE " LP solver cuPDLP enabled ")
 
 ######################
+# cuPDLPx
+######################
+set(CUPDLPX_INCLUDE_DIR "${CUPDLPX_ROOT}")
+set(CUPDLPX_LIB_DIR "${CUPDLPX_ROOT}/build")
+
+if(ENABLE_CUPDLPX)
+    message(STATUS "cuPDLPx support enabled")
+    target_include_directories(cutLPK PRIVATE ${CUPDLPX_INCLUDE_DIR})
+    link_directories(${CUPDLPX_LIB_DIR})
+
+    find_library(CUPDLPX_LIB cupdlpx PATHS ${CUPDLPX_LIB_DIR} NO_DEFAULT_PATH)
+
+    if(CUPDLPX_LIB)
+        target_link_libraries(cutLPK PRIVATE ${CUPDLPX_LIB})
+        target_compile_definitions(cutLPK PRIVATE ENABLE_CUPDLPX)
+        message(NOTICE "cuPDLPx library found and linked: ${CUPDLPX_LIB}")
+    else()
+        message(WARNING "cuPDLPx library not found in ${CUPDLPX_LIB_DIR}")
+    endif()
+    find_library(ZLIB_LIBRARY z)
+    # it's necessary for cupdlpx, but we won't use it actually
+    if(ZLIB_LIBRARY)
+        target_link_libraries(cutLPK PRIVATE ${ZLIB_LIBRARY})
+    else()
+        message(FATAL_ERROR "zlib not found")
+    endif()
+else()
+    message(STATUS "cuPDLPx support disabled")
+endif()
+
+######################
 # Gurobi
 ######################
 include_directories(${GUROBI_ROOT}/include)
@@ -121,6 +154,6 @@ target_include_directories(cutLPK PRIVATE ${GUROBI_ROOT}/include)
 target_link_directories(cutLPK PRIVATE ${GUROBI_ROOT}/lib)
 target_link_libraries(cutLPK PRIVATE 
     ${GUROBI_ROOT}/lib/libgurobi_c++.a
-    ${GUROBI_ROOT}/lib/libgurobi110.so
+    ${GUROBI_ROOT}/lib/libgurobi120.so
     )
 message(NOTICE, " Solver Gurobi enabled ")

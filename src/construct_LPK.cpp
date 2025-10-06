@@ -245,7 +245,7 @@ void addInitialCuts(const parameters& params, int N, Eigen::MatrixXd& Lloyd_Xsol
 
     //initializationInfo initInfo;
     const unsigned long long totalCombinations = static_cast<unsigned long long>(N) * (N - 1) * (N - 2) / 2;
-    const int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.max_cuts_init)));
+    const int initial_size = static_cast<int>(std::min(totalCombinations, static_cast<unsigned long long>(params.cutting_plane_max_cuts_firstLP)));
 
     //std::cout<< "Total combinations: " << totalCombinations << std::endl;
     
@@ -261,7 +261,7 @@ void addInitialCuts(const parameters& params, int N, Eigen::MatrixXd& Lloyd_Xsol
     // Timing Identify cuts
     auto start = std::chrono::high_resolution_clock::now();
 
-    if (params.warm_start == 2) {
+    if (params.cutting_plane_warm_start == 2) {
         // Random selection approach or approach for warm_start == 2
         std::mt19937 gen(params.random_seed);
         std::uniform_real_distribution<double> dis(0.0, 1.0);
@@ -276,7 +276,7 @@ void addInitialCuts(const parameters& params, int N, Eigen::MatrixXd& Lloyd_Xsol
                         violation = Lloyd_Xsol(i, j) + Lloyd_Xsol(i, k) - Lloyd_Xsol(i, i) - Lloyd_Xsol(j, k);
                     //}
 
-                    if (std::abs(violation) < params.cuts_act_tol) {
+                    if (std::abs(violation) < params.cutting_plane_cuts_act_tol) {
                         unsigned long long remaining_combinations = totalCombinations - scaned_count;
                         double p = static_cast<double>(initial_size - added_count) / static_cast<double>(remaining_combinations);
                         act_size++;
@@ -293,7 +293,7 @@ void addInitialCuts(const parameters& params, int N, Eigen::MatrixXd& Lloyd_Xsol
         }
     } else {
         // Warm start approach 1: Add first size_each_i triangle inequalities for each i,j
-        const int size_each_i = params.max_cuts_init / N;
+        const int size_each_i = params.cutting_plane_max_cuts_firstLP / N;
         
         for (int i = 0; i < N && added_count < initial_size; i++) {
             int added_count_i = 0;
@@ -306,7 +306,7 @@ void addInitialCuts(const parameters& params, int N, Eigen::MatrixXd& Lloyd_Xsol
                     
                     double violation = Lloyd_Xsol(i, j) + Lloyd_Xsol(i, k) - Lloyd_Xsol(i, i) - Lloyd_Xsol(j, k);
                     
-                    if (std::abs(violation) < params.cuts_act_tol) {//
+                    if (std::abs(violation) < params.cutting_plane_cuts_act_tol) {//
                         addCut(cuts, cuts_triplets, cuts_idx_start + added_count, N, i, j, k, violation);//
                         added_count_i++;
                         added_count++;

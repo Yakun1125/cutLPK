@@ -98,62 +98,82 @@ class LPK{
 };
 
 struct parameters {
-	std::string solver;
-	std::string output_file;
-	int output_level;
 	int random_seed;
-	int max_cuts_init;
-	int max_cuts_per_iter;
-	int max_cuts_added_iter;
-	int max_separation_size;
-	int max_active_cuts_size;
-	int warm_start;
-	int t_upper_bound;
-	double initial_lp_time_limit;
-	double time_limit_lp;
-	double time_limit_all;
-	double initial_solver_tol;
-	double solver_tolerance_per_iter;
-	double lb_solver_tol;
-	double cuts_vio_tol;
-	double cuts_act_tol;
-	double opt_gap;
-	double max_separation_time;
+	std::string solver;
+	bool solver_warm_start;
 
-    int lloyd_random_starts;
-	std::string fairness_type;
-	double fairness_param;
-	std::string group_file;
+	std::string cutting_plane_output_file;
+	int cutting_plane_output_level;
+	int cutting_plane_max_cuts_firstLP;
+	int cutting_plane_max_cuts_per_iter;
+	int cutting_plane_max_cuts_added_iter;
+	int cutting_plane_max_cuts_separation_size;
+	int cutting_plane_max_active_cuts_size;
+	int cutting_plane_warm_start;
+	int cutting_plane_max_iter;
+	int cutting_plane_t_upper_bound;
+	int cutting_plane_num_iter_no_improve;
+	double cutting_plane_firstLP_time_limit;
+	double cutting_plane_LP_time_limit;
+	double cutting_plane_time_limit;
+	double cutting_plane_firstLP_solver_tol;
+	double cutting_plane_solver_tol;
+	double cutting_plane_lb_solver_tol;
+	double cutting_plane_cuts_vio_tol;
+	double cutting_plane_cuts_act_tol;
+	double cutting_plane_opt_gap;
+	double cutting_plane_max_separation_time;
+
+
+    int lloyd_num_random_starts;
+	std::string fair_clustering_fairness_type;
+	double fair_clustering_fairness_param;
+	std::string fair_clustering_group_file;
 	bool is_spectral_clustering;
 	    // Constructor with default values
 		parameters() : 
+		random_seed(42),
         solver("cupdlp"),
-        output_file(""),
-        output_level(3),
-        random_seed(42),
-        max_cuts_init(1.5e7),
-        max_cuts_per_iter(3e7),
-        max_cuts_added_iter(1e7),
-        max_separation_size(1.5e7),
-        //max_active_cuts_size(500),
-        warm_start(1),
-        t_upper_bound(10),
-        initial_lp_time_limit(180.0),
-        time_limit_lp(180.0),
-        time_limit_all(7200.0),
-        initial_solver_tol(1e-6),
-        solver_tolerance_per_iter(1e-6),
-        lb_solver_tol(1e-6),
-        cuts_vio_tol(1e-4),
-        cuts_act_tol(1e-4),
-        opt_gap(1e-4),
-        lloyd_random_starts(100),
-        fairness_type(""),
-		is_spectral_clustering(false),
-        fairness_param(1.0),
-        group_file(""),
-        max_separation_time(300.0)
+		solver_warm_start(true),
+
+        cutting_plane_output_file(""),
+        cutting_plane_output_level(3),
+        cutting_plane_max_cuts_firstLP(1.5e7),
+		cutting_plane_max_cuts_per_iter(3e7),
+		cutting_plane_max_cuts_added_iter(1e7),
+		cutting_plane_max_cuts_separation_size(1.5e7),
+		cutting_plane_max_active_cuts_size(3e7),
+		cutting_plane_warm_start(1),
+		cutting_plane_max_iter(30),
+		cutting_plane_t_upper_bound(2),
+		cutting_plane_num_iter_no_improve(3),
+		cutting_plane_firstLP_time_limit(360.0),
+		cutting_plane_LP_time_limit(180.0),
+		cutting_plane_time_limit(7200.0),
+		cutting_plane_firstLP_solver_tol(1e-6),
+		cutting_plane_solver_tol(1e-6),
+		cutting_plane_lb_solver_tol(1e-6),
+		cutting_plane_cuts_vio_tol(1e-4),
+		cutting_plane_cuts_act_tol(1e-4),
+		cutting_plane_opt_gap(1e-4),
+		cutting_plane_max_separation_time(300.0),
+
+		lloyd_num_random_starts(100),
+		fair_clustering_fairness_type(""),
+		fair_clustering_fairness_param(1.0),
+		fair_clustering_group_file(""),
+		is_spectral_clustering(false)
     {}
+};
+
+// Return status for iterative cutting plane solver
+enum class ICPStatus : int {
+    SUCCESS = 0,  
+    NO_VIOLATED_CUTS = 1,
+    NO_IMPROVEMENT = 2,
+    TIME_OR_LIMIT = 3,
+    ERROR = 4,
+    MAX_ITER = 5   
 };
 
 struct cutLPKSolveInfo {

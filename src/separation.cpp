@@ -343,7 +343,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             }
             violation_size = 0;
 
-            separation_scheme(Xsol, violated_cuts, max_T, N, params.max_separation_size, params.cuts_vio_tol);
+            separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol);
 
             for (int i = 0; i < max_T - 1; ++i) {
                 violation_size += violated_cuts[i].size();
@@ -353,14 +353,14 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
                 break;
             }
 
-            if (max_T < params.t_upper_bound) {
+            if (max_T < params.cutting_plane_t_upper_bound) {
                 // Increase max_T if possible
                 max_T++;
                 signs.push_back('+');
                 violated_cuts.resize(max_T - 1);
             } else {
                 // do exact separation
-                exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.max_separation_size, params.cuts_vio_tol, params.max_separation_time, max_T);
+                exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
                 for (int i = 0; i < max_T - 1; ++i) {
                     violation_size += violated_cuts[i].size();
                 }
@@ -375,7 +375,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             return 1; // No violated cuts found
         }
 
-        cut_selection_active(N, max_T, Xsol, cutting_planes, lp, params.cuts_act_tol);
+        cut_selection_active(N, max_T, Xsol, cutting_planes, lp, params.cutting_plane_cuts_act_tol);
 
         active_size = cutting_planes.size();
         int cuts_idx = lp.cons_lb_cuts.size();
@@ -386,8 +386,8 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
         }
         int cuts_idx_start = lp.cons_lb_basic.size();
 
-        int remaining_capacity = std::max(params.max_cuts_per_iter - cuts_idx, 0);// add as many as possible but control the size of LP
-        remaining_capacity = std::min(remaining_capacity, params.max_cuts_added_iter);
+        int remaining_capacity = std::max(params.cutting_plane_max_cuts_per_iter - cuts_idx, 0);// add as many as possible but control the size of LP
+        remaining_capacity = std::min(remaining_capacity, params.cutting_plane_max_cuts_added_iter);
         if (remaining_capacity == 0) {
             remaining_capacity += 100000;
         }
