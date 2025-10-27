@@ -1,0 +1,20 @@
+# Build directories
+build/
+**/build/
+**/build-asan/
+**/build-valgrind/
+
+# CMake artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+
+# IDE
+.vscode/

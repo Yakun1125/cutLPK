@@ -12,9 +12,7 @@ project(cutLPK) # LANGUAGES CXX CUDA
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/config.cmake)
 
-# Add all source files to the executable
-add_executable(cutLPK 
-    main.cpp
+set(CUTLPK_CORE_SOURCES
     construct_LPK.cpp
     Lloyd.cpp
     fair_Lloyd.cpp
@@ -23,12 +21,32 @@ add_executable(cutLPK
     Rounding_heuristic.cpp
     iterative_cutting_plane.cpp
     spectral_heuristic.cpp
+    branch_and_bound.cpp
+    ordinary_kmeans_solver.cpp
+    fair_kmeans_solver.cpp
 )
 
-include_directories(cutLPK PRIVATE ${EIGEN_INCLUDE_DIR})
+add_library(cutlpk_core STATIC ${CUTLPK_CORE_SOURCES})
+set_target_properties(cutlpk_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(cutlpk_core PUBLIC cxx_std_17)
+target_include_directories(cutlpk_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${EIGEN_INCLUDE_DIR}
+)
+
+if(NOT DEFINED CUTLPK_BUILD_EXECUTABLE)
+    set(CUTLPK_BUILD_EXECUTABLE ON)
+endif()
+
+if(CUTLPK_BUILD_EXECUTABLE)
+    add_executable(cutLPK main.cpp)
+    target_link_libraries(cutLPK PRIVATE cutlpk_core)
+endif()
+
 find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(cutLPK PRIVATE OpenMP::OpenMP_CXX)
+    target_link_libraries(cutlpk_core PUBLIC OpenMP::OpenMP_CXX)
     message(NOTICE "OpenMP enabled")
 else()
     message(WARNING "OpenMP not found")
@@ -46,8 +64,8 @@ set(CMAKE_CUDA_COMPILER "${CMAKE_CUDA_PATH}/bin/nvcc")
 
 # Check if CUDA compiler was found
 if(CMAKE_CUDA_COMPILER)
-  message(NOTICE "CUDA found: compiler at ${CMAKE_CUDA_COMPILER}")
-  add_definitions(-DCUDA_AVAILABLE)
+    message(NOTICE "CUDA found: compiler at ${CMAKE_CUDA_COMPILER}")
+    target_compile_definitions(cutlpk_core PUBLIC CUDA_AVAILABLE)
 else()
   message(FATAL_ERROR "CUDA not found. This project requires CUDA.")
 endif()
@@ -70,49 +88,21 @@ if(NOT CUDA_BLAS_LIBRARY)
   message(FATAL_ERROR "cuBLAS library not found")
 endif()
 
-target_include_directories(cutLPK PRIVATE ${CMAKE_CUDA_PATH}/include)
-target_link_libraries(cutLPK PRIVATE ${CUDA_RUNTIME_LIBRARY} ${CUDA_SPARSE_LIBRARY} ${CUDA_BLAS_LIBRARY})
-######################
-# Highs
-######################
-set(HiGHS_HEADER_LIB "${HIGHS_HOME}/build/lib")
-set(HiGHS_INCLUDE_DIR "${HIGHS_HOME}/src")
-include_directories(${HiGHS_INCLUDE_DIR})
-link_directories(${HiGHS_HEADER_LIB})
-target_link_directories(cutLPK PRIVATE ${HiGHS_HEADER_LIB})
-target_link_libraries(cutLPK PRIVATE highs)
-
-######################
-# cuPDLP-C
-######################
-include_directories("${CUPDLP_ROOT}/interface")
-include_directories("${CUPDLP_ROOT}/cupdlp")
-
-set(CUPDLP_LIB_DIR "${CUPDLP_ROOT}/out/build/linux-release-CUDA/lib")
-link_directories(${CUPDLP_LIB_DIR})
-
-find_library(WRAPPER_HIGHS_LIB wrapper_highs PATHS ${CUPDLP_LIB_DIR} NO_DEFAULT_PATH)
-find_library(WRAPPER_LP_LIB wrapper_lp PATHS ${CUPDLP_LIB_DIR} NO_DEFAULT_PATH)
-find_library(CUPDLP_LIB cupdlp PATHS ${CUPDLP_LIB_DIR} NO_DEFAULT_PATH)
-find_library(CUDALIN_LIB cudalin PATHS ${CUPDLP_LIB_DIR} NO_DEFAULT_PATH)
-
-if(WRAPPER_HIGHS_LIB AND WRAPPER_LP_LIB AND CUPDLP_LIB AND CUDALIN_LIB)
-    target_link_libraries(cutLPK PRIVATE 
-        ${WRAPPER_HIGHS_LIB} 
-        ${WRAPPER_LP_LIB} 
-        ${CUPDLP_LIB}
-        ${CUDALIN_LIB}
-    )
-    message(NOTICE "cuPDLP libraries found and linked")
-else()
-    message(WARNING "Some cuPDLP libraries not found. 
-        WRAPPER_HIGHS_LIB: ${WRAPPER_HIGHS_LIB}, 
-        WRAPPER_LP_LIB: ${WRAPPER_LP_LIB}, 
-        CUPDLP_LIB: ${CUPDLP_LIB}, 
-        CUDALIN_LIB: ${CUDALIN_LIB}"
-    )
+find_library(CUDA_DRIVER_LIBRARY cuda
+        HINTS
+                ${CMAKE_CUDA_PATH}/lib64
+                ${CMAKE_CUDA_PATH}/lib64/stubs
+                /usr/lib/x86_64-linux-gnu)
+if(NOT CUDA_DRIVER_LIBRARY)
+    message(FATAL_ERROR "CUDA driver library not found")
 endif()
-message(NOTICE " LP solver cuPDLP enabled ")
+
+find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt HINTS ${CMAKE_CUDA_PATH}/lib64)
+if(NOT CUDA_DEVICE_RUNTIME_LIBRARY)
+    message(FATAL_ERROR "CUDA device runtime library not found")
+endif()
+
+target_include_directories(cutlpk_core PUBLIC ${CMAKE_CUDA_PATH}/include)
 
 ######################
 # cuPDLPx
@@ -122,14 +112,14 @@ set(CUPDLPX_LIB_DIR "${CUPDLPX_ROOT}/build")
 
 if(ENABLE_CUPDLPX)
     message(STATUS "cuPDLPx support enabled")
-    target_include_directories(cutLPK PRIVATE ${CUPDLPX_INCLUDE_DIR})
-    link_directories(${CUPDLPX_LIB_DIR})
+    target_include_directories(cutlpk_core PUBLIC ${CUPDLPX_INCLUDE_DIR})
+    target_link_directories(cutlpk_core PUBLIC ${CUPDLPX_LIB_DIR})
 
     find_library(CUPDLPX_LIB cupdlpx PATHS ${CUPDLPX_LIB_DIR} NO_DEFAULT_PATH)
 
     if(CUPDLPX_LIB)
-        target_link_libraries(cutLPK PRIVATE ${CUPDLPX_LIB})
-        target_compile_definitions(cutLPK PRIVATE ENABLE_CUPDLPX)
+        target_link_libraries(cutlpk_core PUBLIC ${CUPDLPX_LIB})
+        target_compile_definitions(cutlpk_core PUBLIC ENABLE_CUPDLPX)
         message(NOTICE "cuPDLPx library found and linked: ${CUPDLPX_LIB}")
     else()
         message(WARNING "cuPDLPx library not found in ${CUPDLPX_LIB_DIR}")
@@ -137,7 +127,7 @@ if(ENABLE_CUPDLPX)
     find_library(ZLIB_LIBRARY z)
     # it's necessary for cupdlpx, but we won't use it actually
     if(ZLIB_LIBRARY)
-        target_link_libraries(cutLPK PRIVATE ${ZLIB_LIBRARY})
+        target_link_libraries(cutlpk_core PUBLIC ${ZLIB_LIBRARY})
     else()
         message(FATAL_ERROR "zlib not found")
     endif()
@@ -145,15 +135,20 @@ else()
     message(STATUS "cuPDLPx support disabled")
 endif()
 
+target_link_libraries(cutlpk_core PUBLIC
+    ${CUDA_RUNTIME_LIBRARY}
+    ${CUDA_SPARSE_LIBRARY}
+    ${CUDA_BLAS_LIBRARY}
+    ${CUDA_DRIVER_LIBRARY}
+    ${CUDA_DEVICE_RUNTIME_LIBRARY})
+
 ######################
 # Gurobi
 ######################
-include_directories(${GUROBI_ROOT}/include)
-link_directories(${GUROBI_ROOT}/lib)
-target_include_directories(cutLPK PRIVATE ${GUROBI_ROOT}/include)
-target_link_directories(cutLPK PRIVATE ${GUROBI_ROOT}/lib)
-target_link_libraries(cutLPK PRIVATE 
+target_include_directories(cutlpk_core PUBLIC ${GUROBI_ROOT}/include)
+target_link_directories(cutlpk_core PUBLIC ${GUROBI_ROOT}/lib)
+target_link_libraries(cutlpk_core PUBLIC 
     ${GUROBI_ROOT}/lib/libgurobi_c++.a
-    ${GUROBI_ROOT}/lib/libgurobi120.so
+    ${GUROBI_ROOT}/lib/libgurobi130.so
     )
 message(NOTICE, " Solver Gurobi enabled ")

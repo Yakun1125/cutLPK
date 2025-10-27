@@ -215,120 +215,6 @@ void exact_separation_scheme(
     }
 }
 
-void extend_chain(
-    int source, 
-    const Eigen::MatrixXd& Xsol, 
-    std::vector<int>& chain, 
-    double current_cost, 
-    const int N, 
-    const int max_T, 
-    double cuts_vio_tol, 
-    std::vector<std::list<validInequality>>& violated_cuts, 
-    std::atomic<int>& max_list_size, 
-    const int max_init,
-    std::vector<double>& node_contributions
-) {
-    // Base case checks
-    if (chain.size() >= max_T || max_list_size.load(std::memory_order_relaxed) >= max_init) {
-        return;
-    }
-    
-    const int last_node = chain.back();
-    
-    // Reset and update node contributions for efficient cost calculation
-    std::fill(node_contributions.begin(), node_contributions.end(), 0.0);
-    for (int node_idx : chain) {
-        for (int next = std::max(node_idx + 1, last_node + 1); next < N; ++next) {
-            if (next != source) {
-                node_contributions[next] += Xsol(node_idx, next);
-            }
-        }
-    }
-    
-    // Try adding each possible next node
-    for (int next = last_node + 1; next < N; ++next) {
-        if (next == source) continue;
-        
-        // Use pre-computed node contributions
-        double next_cost = current_cost + Xsol(source, next) - node_contributions[next];
-        
-        // If this is a violated inequality, add it to our cuts
-        if (next_cost > cuts_vio_tol) {
-            int local_max = max_list_size.load(std::memory_order_acquire);
-            
-            if (local_max < max_init) {
-                std::vector<int> recording_chain;
-                recording_chain.reserve(chain.size() + 2);
-                recording_chain.push_back(source);
-                recording_chain.insert(recording_chain.end(), chain.begin(), chain.end());
-                recording_chain.push_back(next);
-                
-                #pragma omp critical
-                {
-                    if (max_list_size < max_init) {
-                        violated_cuts[recording_chain.size() - 3].push_back(
-                            validInequality(recording_chain, next_cost)
-                        );
-                        max_list_size.fetch_add(1, std::memory_order_release);
-                    }
-                }
-            }
-        }
-        
-        // Recursively extend the chain
-        chain.push_back(next);
-        extend_chain(source, Xsol, chain, next_cost, N, max_T, 
-                     cuts_vio_tol, violated_cuts, max_list_size, max_init, node_contributions);
-        chain.pop_back();
-    }
-}
-
-void exact_separation_scheme(
-    const Eigen::MatrixXd& Xsol, 
-    std::vector<std::list<validInequality>>& violated_cuts, 
-    int max_T, 
-    int N, 
-    int max_init, 
-    double cuts_vio_tol
-) {
-    std::atomic<int> max_list_size{0};
-    
-    #pragma omp parallel
-    {
-        // Thread-local chain
-        std::vector<int> chain;
-        chain.reserve(max_T);
-        
-        // Pre-allocate node contributions array
-        std::vector<double> node_contributions(N, 0.0);
-        
-        #pragma omp for schedule(dynamic, 4) nowait
-        for (int source = 0; source < N; ++source) {
-            // Periodically check global limit
-            int local_max = max_list_size.load(std::memory_order_relaxed);
-            if (local_max >= max_init) continue;
-            
-            for (int j = 0; j < N; ++j) {
-                if (j == source) continue;
-                
-                // Check occasionally to reduce atomic operations
-                if (j % 5 == 0) {
-                    local_max = max_list_size.load(std::memory_order_relaxed);
-                    if (local_max >= max_init) break;
-                }
-                
-                chain.clear();
-                chain.push_back(j);
-                double initial_cost = -Xsol(source, source) + Xsol(source, j);
-                
-                // Use thread-local chain and node_contributions
-                extend_chain(source, Xsol, chain, initial_cost, N, max_T, 
-                             cuts_vio_tol, violated_cuts, max_list_size, max_init, node_contributions);
-            }
-        }
-    }
-}
-
 int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, int& max_T, 
     int N, std::vector<char>& signs, std::vector<validInequality>& cutting_planes, int& violation_size, int& active_size){
         auto separation_start = std::chrono::high_resolution_clock::now();
@@ -343,6 +229,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             }
             violation_size = 0;
 
+            //separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, 2);
             separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol);
 
             for (int i = 0; i < max_T - 1; ++i) {
@@ -358,12 +245,17 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
                 max_T++;
                 signs.push_back('+');
                 violated_cuts.resize(max_T - 1);
-            } else {
+            } else if(params.cutting_plane_exact_separation) {
                 // do exact separation
-                exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
+                // std::cout<<"No violated cuts found with current max_T = "<<max_T<<". start search top K."<<std::endl;
+                separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, max_T + 1);
+                //exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
                 for (int i = 0; i < max_T - 1; ++i) {
                     violation_size += violated_cuts[i].size();
                 }
+                break;
+            }
+            else{
                 break;
             }
         }
@@ -375,7 +267,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             return 1; // No violated cuts found
         }
 
-        cut_selection_active(N, max_T, Xsol, cutting_planes, lp, params.cutting_plane_cuts_act_tol);
+        cut_selection_active(N, max_T, Xsol, cutting_planes, lp, params.cutting_plane_cuts_act_tol, params.cutting_plane_remove_inactive_cuts);
 
         active_size = cutting_planes.size();
         int cuts_idx = lp.cons_lb_cuts.size();
@@ -384,7 +276,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
                       << ") does not match cuts index (" << cuts_idx << ")." << std::endl;
                       return -1;
         }
-        int cuts_idx_start = lp.cons_lb_basic.size();
+        int cuts_idx_start = lp.cons_lb_basic.size() + lp.cons_lb_branch.size();
 
         int remaining_capacity = std::max(params.cutting_plane_max_cuts_per_iter - cuts_idx, 0);// add as many as possible but control the size of LP
         remaining_capacity = std::min(remaining_capacity, params.cutting_plane_max_cuts_added_iter);
@@ -415,14 +307,12 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
 
                     for (auto j = std::next(it); j != element.ineq_idx.end(); ++j) {
                         int currentJ = *j;
-                        int temp_i = std::min(firstElement, currentJ);
-                        int temp_j = std::max(firstElement, currentJ);
-                        int indexValue = temp_i * (2 * N - temp_i + 1) / 2 + temp_j - temp_i;
+                        int indexValue = getPairIndex(firstElement, currentJ, N);
                         violated_cuts_triplets.emplace_back(newRow, indexValue, 1);
 
                         for (auto k = std::next(j); k != element.ineq_idx.end(); ++k) {
                             int currentK = *k;
-                            violated_cuts_triplets.emplace_back(newRow, currentJ * (2 * N - currentJ + 1) / 2 + currentK - currentJ, -1);
+                            violated_cuts_triplets.emplace_back(newRow, getPairIndex(currentJ, currentK, N), -1);
                         }
                     }
                     ++cuts_idx;
@@ -454,19 +344,17 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
                 int newRow = cuts_idx_start + cuts_idx;
                 auto it = violated_cuts_sorted[i].ineq_idx.begin();
                 int firstElement = *it;
-                int firstTerm = firstElement * (2 * N - firstElement + 1) / 2;
+                int firstTerm = getPairIndex(firstElement, firstElement, N);
                 violated_cuts_triplets.emplace_back(newRow, firstTerm, -1);
 
                 for (auto j = std::next(it); j != violated_cuts_sorted[i].ineq_idx.end(); ++j) {
                     int currentJ = *j;
-                    int temp_i = std::min(firstElement, currentJ);
-                    int temp_j = std::max(firstElement, currentJ);
-                    int indexValue = temp_i * (2 * N - temp_i + 1) / 2 + temp_j - temp_i;
+                    int indexValue = getPairIndex(firstElement, currentJ, N);
                     violated_cuts_triplets.emplace_back(newRow, indexValue, 1);
 
                     for (auto k = std::next(j); k != violated_cuts_sorted[i].ineq_idx.end(); ++k) {
                         int currentK = *k;
-                        violated_cuts_triplets.emplace_back(newRow, currentJ * (2 * N - currentJ + 1) / 2 + currentK - currentJ, -1);
+                        violated_cuts_triplets.emplace_back(newRow, getPairIndex(currentJ, currentK, N), -1);
                     }
                 }
                 ++cuts_idx;
@@ -485,7 +373,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
 
 
 void cut_selection_active(const int N, const int max_T, const Eigen::MatrixXd& Xsol, 
-    std::vector<validInequality>& cutting_planes, LPK& lp, double tolerance){
+    std::vector<validInequality>& cutting_planes, LPK& lp, double tolerance, bool remove_inactive) {
     
         auto cut_selection_start = std::chrono::high_resolution_clock::now();
     
@@ -495,14 +383,14 @@ void cut_selection_active(const int N, const int max_T, const Eigen::MatrixXd& X
         
         int cuts_idx = 0;
         int active_idx = 0;
-        int cuts_idx_start = lp.cons_lb_basic.size() + lp.cons_lb_cuts.size();
+        int cuts_idx_start = lp.cons_lb_basic.size() + lp.cons_lb_branch.size() + lp.cons_lb_cuts.size();
         
         // Process all cuts, keeping active ones at the front of the vector
         for (size_t i = 0; i < cutting_planes.size(); ++i) {
             const auto& element = cutting_planes[i];
             std::string key = getInequalityKey(element.ineq_idx);
-            
-            if (std::abs(element.violation) < tolerance) {// || inequality_add_counts[key] >= 2
+
+            if (std::abs(element.violation) < tolerance || (!remove_inactive)) {// || inequality_add_counts[key] >= 2
                 // If we're not already at this position, move the active cut to the front
                 if (active_idx != i) {
                     cutting_planes[active_idx] = element;
@@ -513,21 +401,19 @@ void cut_selection_active(const int N, const int max_T, const Eigen::MatrixXd& X
                 
                 // Now using vector instead of list, so we can access elements directly
                 int firstElement = element.ineq_idx[0];
-                int firstTerm = firstElement * (2 * N - firstElement + 1) / 2;
+                int firstTerm = getPairIndex(firstElement, firstElement, N);
                 kept_cuts_triplets.emplace_back(newRow, firstTerm, -1);
                 
                 // Iterate through the remaining elements
                 for (size_t j = 1; j < element.ineq_idx.size(); ++j) {
                     int currentJ = element.ineq_idx[j];
-                    int temp_i = std::min(firstElement, currentJ);
-                    int temp_j = std::max(firstElement, currentJ);
-                    int indexValue = temp_i * (2 * N - temp_i + 1) / 2 + temp_j - temp_i;
+                    int indexValue = getPairIndex(firstElement, currentJ, N);
                     kept_cuts_triplets.emplace_back(newRow, indexValue, 1);
                     
                     // Generate triplets for pairs of non-first elements
                     for (size_t k = j + 1; k < element.ineq_idx.size(); ++k) {
                         int currentK = element.ineq_idx[k];
-                        kept_cuts_triplets.emplace_back(newRow, currentJ * (2 * N - currentJ + 1) / 2 + currentK - currentJ, -1);
+                        kept_cuts_triplets.emplace_back(newRow, getPairIndex(currentJ, currentK, N), -1);
                     }
                 }
                 
@@ -549,3 +435,113 @@ void cut_selection_active(const int N, const int max_T, const Eigen::MatrixXd& X
         auto act_cut_time = std::chrono::duration_cast<std::chrono::milliseconds>(act_cut_selection_end - cut_selection_start);
         //std::cout << "active cut selection time: " << act_cut_time.count() / 1e3 << " seconds" << std::endl;
     }
+
+void separation_scheme_top_k(
+    const Eigen::MatrixXd& Xsol, 
+    std::vector<std::list<validInequality>>& violated_cuts, 
+    int max_T, 
+    int N, 
+    int maxSize, 
+    double cuts_vio_tol,
+    int k_branching  // Number of top nodes to consider at each step
+) {
+    int max_list_size = 0;
+    
+    // Structure to hold potential extensions with their costs
+    struct NodeExtension {
+        int node;
+        double cost;
+        std::vector<int> chain;
+        
+        bool operator<(const NodeExtension& other) const {
+            return cost > other.cost; // For max-heap (highest cost first)
+        }
+    };
+
+    // use up to max available threads minus 2 threads
+    int available_threads = omp_get_max_threads();
+    int threads_to_use = std::max(1, available_threads - 2);
+    omp_set_num_threads(threads_to_use);
+
+#pragma omp parallel for shared(violated_cuts, max_list_size)
+    for (int source = 0; source < N; ++source) {
+        for (int j = 0; j < N; ++j) {
+            if (j != source) {
+                // Initialize with single node chain
+                std::vector<NodeExtension> current_level;
+                current_level.push_back({j, -Xsol(source, source) + Xsol(source, j), {j}});
+                
+                for (int size = 2; size <= max_T; ++size) {
+                    if (max_list_size >= maxSize) break;
+                    
+                    std::vector<NodeExtension> next_level;
+                    
+                    // For each chain in current level
+                    for (const auto& current : current_level) {
+                        std::vector<std::pair<int, double>> candidates;
+                        
+                        // Find all possible extensions
+                        int current_node = current.chain.back();
+                        for (int next = current_node + 1; next < N; ++next) {
+                            if (next != source) {
+                                double additional_cost = 0.0;
+                                for (int k : current.chain) {
+                                    if (k < next) {
+                                        additional_cost += Xsol(k, next);
+                                    }
+                                }
+                                double next_cost = current.cost + Xsol(source, next) - additional_cost;
+                                candidates.push_back({next, next_cost});
+                            }
+                        }
+                        
+                        // Sort candidates by cost (descending) and take top k
+                        std::sort(candidates.begin(), candidates.end(), 
+                                [](const std::pair<int, double>& a, const std::pair<int, double>& b) {
+                                    return a.second > b.second;
+                                });
+                        
+                        int num_to_take = std::min(k_branching, (int)candidates.size());
+                        for (int i = 0; i < num_to_take; ++i) {
+                            int next_node = candidates[i].first;
+                            double next_cost = candidates[i].second;
+                            
+                            // Create extended chain
+                            std::vector<int> extended_chain = current.chain;
+                            extended_chain.push_back(next_node);
+                            
+                            // Add to next level
+                            next_level.push_back({next_node, next_cost, extended_chain});
+                            
+                            // Check if this is a violated cut
+                            if (next_cost > cuts_vio_tol && extended_chain.size() > 1) {
+#pragma omp critical
+                                {
+                                    if (max_list_size < maxSize) {
+                                        std::vector<int> cut = extended_chain;
+                                        cut.insert(cut.begin(), source);
+                                        violated_cuts[size - 2].push_back(validInequality(cut, next_cost));
+#pragma omp atomic
+                                        max_list_size++;
+                                    }
+                                }
+#pragma omp flush(max_list_size)
+                            }
+                        }
+                    }
+                    
+                    // Move to next level, but limit the number of chains to keep memory manageable
+                    current_level = std::move(next_level);
+                    
+                    // Optionally limit the number of chains per level to control memory
+                    if (current_level.size() > maxSize / 10) {
+                        std::sort(current_level.begin(), current_level.end());
+                        current_level.resize(maxSize / 10);
+                    }
+                    
+                    if (current_level.empty()) break;
+                }
+            }
+        }
+    }
+}

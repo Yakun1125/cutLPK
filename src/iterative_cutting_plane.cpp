@@ -1,5 +1,6 @@
 #include "iterative_cutting_plane.h"
 #include "Solver_cupdlp.h"
+// #include "Solver_gurobi.h"
 
 #include "separation.h"
 #include <iomanip>
@@ -109,12 +110,14 @@ ICPStatus iterative_cutting_plane_solver(
     std::vector<validInequality>& cutting_planes, 
     LPK& lp, 
     RoundingHeuristic& roundingHeuristic,
-    const parameters& params
+    const parameters& params,
+    const std::vector<double>* primal_init,  // Initial primal solution for warm start
+    const std::vector<double>* dual_init     // Initial dual solution for warm start
 ){
-    if (params.cutting_plane_output_level >= 1) {
+    if (params.cutting_plane_verbose >= 1) {
         printHeader();
         // save Header to params.cutting_plane_output_file if it is not ""
-        if (!params.cutting_plane_output_file.empty()) {
+        if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
             saveHeaderToFile(params.cutting_plane_output_file);
         }
     }
@@ -150,6 +153,14 @@ ICPStatus iterative_cutting_plane_solver(
     std::vector<double> last_primal_sol;
     std::vector<double> last_dual_sol;
     
+    // Initialize with warm start solutions if provided
+    if (primal_init != nullptr) {
+        last_primal_sol = *primal_init;
+    }
+    if (dual_init != nullptr) {
+        last_dual_sol = *dual_init;
+    }
+    
     //CupdlpSolver solver;
     auto cutLPK_start = std::chrono::high_resolution_clock::now();
     Eigen::MatrixXd Xsol; Xsol.resize(N, N);
@@ -170,10 +181,7 @@ ICPStatus iterative_cutting_plane_solver(
             solver_tolerance = params.cutting_plane_solver_tol;
         }
            
-        if (params.solver == "cupdlp") {
-            solver_retcode = solver_cupdlp(current_dual_obj, current_primal_obj, Xsol, cutting_planes, lp, solver_tolerance, solver_time_limit);
-        }
-        else if (params.solver == "cupdlpx") {
+        if (params.solver == "cupdlpx") {
             std::vector<double> dual_init(lp.consLb.size(), 0.0);
             if (params.solver_warm_start && !last_dual_sol.empty()) {
                 // Copy duals for non-cut constraints
@@ -196,6 +204,9 @@ ICPStatus iterative_cutting_plane_solver(
             );
             //solver_retcode = solver_cupdlpx(current_dual_obj, current_primal_obj, Xsol, cutting_planes, lp, solver_tolerance, solver_time_limit);
         }
+        // else if (params.solver == "gurobi") {
+        //     solver_retcode = solver_gurobi(current_dual_obj, current_primal_obj, Xsol, cutting_planes, lp, solver_tolerance, solver_time_limit);
+        // }
         else {
             std::cerr << "Unsupported solver: " << params.solver << std::endl;
             exit_status = ICPStatus::ERROR;
@@ -207,8 +218,15 @@ ICPStatus iterative_cutting_plane_solver(
         // std::cout << "Solver time: " << solver_time.count() / 1e3 << " seconds" << std::endl;
 
         if (solver_retcode > 1) {
-            std::cout << "solve partial lpk failed" << std::endl;
-            exit_status = ICPStatus::ERROR;
+            std::cout << "solve partial lpk failed with code " << solver_retcode << std::endl;
+            // For now, treat severe solver failures as potential infeasibility
+            // This may need refinement based on the specific solver error codes
+            if (solver_retcode == 2) {
+                std::cout << "Potential infeasibility detected by LP solver" << std::endl;
+                exit_status = ICPStatus::INFEASIBLE;
+            } else {
+                exit_status = ICPStatus::ERROR;
+            }
             break;
         }
         solver_retcode_record.push_back(solver_retcode);
@@ -229,9 +247,15 @@ ICPStatus iterative_cutting_plane_solver(
         roundingHeuristic.setSolutionMatrix(Xsol);
         //RoundingHeuristic roundingHeuristic(dataPoints, K, Xsol);
         if (!roundingHeuristic.run()) {
-            std::cerr << "Rounding heuristic failed!" << std::endl;
-            exit_status = ICPStatus::ERROR;
-            break;
+            if (roundingHeuristic.isInfeasible()) {
+                std::cerr << "Rounding heuristic detected infeasibility!" << std::endl;
+                exit_status = ICPStatus::INFEASIBLE;
+                break;
+            } else {
+                std::cerr << "Rounding heuristic failed!" << std::endl;
+                exit_status = ICPStatus::ERROR;
+                break;
+            }
         }
         Eigen::MatrixXd rounding_Xsol = roundingHeuristic.getFinalMatrix();
         double rounding_objective = roundingHeuristic.getFinalObjective();
@@ -248,13 +272,15 @@ ICPStatus iterative_cutting_plane_solver(
         // check relative gap
         optimality_gap = (upper_bound - lower_bound)/upper_bound;
         gap_record.push_back(optimality_gap);
-        if (optimality_gap < params.cutting_plane_opt_gap) {
+        if (optimality_gap < params.cutting_plane_opt_gap || lower_bound > params.bnb_global_ub) {
             //std::cout << "Optimality gap is within tolerance: " << optimality_gap << std::endl;
             exit_status = ICPStatus::SUCCESS;
             auto time_stamp2 = std::chrono::high_resolution_clock::now();
             auto stamp2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp2 - cutLPK_start);
-            printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
-            if (!params.cutting_plane_output_file.empty()) {
+            if (params.cutting_plane_verbose >= 1){
+                printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
+            }
+            if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
                 saveIterationToFile(params.cutting_plane_output_file, signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
             }
             break;
@@ -271,8 +297,10 @@ ICPStatus iterative_cutting_plane_solver(
             exit_status = ICPStatus::NO_VIOLATED_CUTS;
             auto time_stamp2 = std::chrono::high_resolution_clock::now();
             auto stamp2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_stamp2 - cutLPK_start);
-            printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
-            if (!params.cutting_plane_output_file.empty()) {
+            if (params.cutting_plane_verbose >= 1){
+                printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
+            }
+            if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
                 saveIterationToFile(params.cutting_plane_output_file, signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp2_duration.count() / 1e3);
             }
             break;
@@ -367,8 +395,10 @@ ICPStatus iterative_cutting_plane_solver(
         }
         last_optimality_gap = optimality_gap;
 
-        printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp3_duration.count() / 1e3);
-        if (!params.cutting_plane_output_file.empty()) {
+        if (params.cutting_plane_verbose >= 1){
+            printIteration(signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp3_duration.count() / 1e3);
+        }
+        if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
             saveIterationToFile(params.cutting_plane_output_file, signs, cut_iter, lower_bound, upper_bound, optimality_gap, max_T, cuts_active_size, violation_size, cutting_planes.size(), solver_time.count() / 1e3, stamp3_duration.count() / 1e3);
         }
 
@@ -405,12 +435,16 @@ ICPStatus iterative_cutting_plane_solver(
             }
         }
     }
-    std::cout << std::string(115, '=') << std::endl;
+    if (params.cutting_plane_verbose >= 1) {
+        std::cout << std::string(115, '=') << std::endl;
+    }
 
     if (cut_iter >= params.cutting_plane_max_iter && exit_status == ICPStatus::SUCCESS) {
         exit_status = ICPStatus::MAX_ITER;
-        std::cout << "Reached maximum iterations " << params.cutting_plane_max_iter << " without meeting stopping criteria." << std::endl;
-        if (!params.cutting_plane_output_file.empty()) {
+        if (params.cutting_plane_verbose >= 1) {
+            std::cout << "Reached maximum iterations " << params.cutting_plane_max_iter << " without meeting stopping criteria." << std::endl;
+        }
+        if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
             std::ofstream file(params.cutting_plane_output_file, std::ios::app);
             if (file.is_open()) {
                 file << "Reached maximum iterations " << params.cutting_plane_max_iter << " without meeting stopping criteria." << std::endl;
@@ -423,13 +457,20 @@ ICPStatus iterative_cutting_plane_solver(
     cutLPKInfor.optimality_gap = optimality_gap;
     cutLPKInfor.final_lp_Xsol = Xsol;
     cutLPKInfor.retcode = static_cast<int>(exit_status);
+    // Store final primal and dual solutions for warm starting
+    cutLPKInfor.primal_solution = last_primal_sol;
+    cutLPKInfor.dual_solution = last_dual_sol;
 
-    if (!params.cutting_plane_output_file.empty()) {
+    if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
         std::ofstream file(params.cutting_plane_output_file, std::ios::app);
         if (file.is_open()) {
             file << std::string(115, '=') << std::endl;
         }
     }
+
+    // identify active cuts reset LP
+    // cut_selection_active(N, max_T, Xsol, cutting_planes, lp, params.cutting_plane_cuts_act_tol);
+    // lp.setupLPK();
 
     return exit_status;
 }

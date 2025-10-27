@@ -4,12 +4,28 @@
 
 bool RoundingHeuristic::run(int maxIterations) {
     try {
+        // Reset infeasibility flag
+        is_infeasible = false;
+        
         //std::cout << "Starting rounding heuristic..." << std::endl;
         bool success;
         if (is_fair_clustering) {
             Eigen::MatrixXd topk_eigenvectors = computeTopKEigenvectors();
             std::vector<Eigen::VectorXd> initial_centroids = generateInitialCentroids(topk_eigenvectors);
             success = runFairLloydWithGurobi(initial_centroids, maxIterations);
+            // clear fairness constraints from gurobi model
+            if (gurobi_model && constraints) {
+                int num_constrs = gurobi_model->get(GRB_IntAttr_NumConstrs);
+                GRBConstr* constrs = gurobi_model->getConstrs();
+                for (int i = 0; i < num_constrs; ++i) {
+                    std::string name = constrs[i].get(GRB_StringAttr_ConstrName);
+                    if (name.find("same_cluster_") == 0 || name.find("diff_cluster_") == 0) {
+                        gurobi_model->remove(constrs[i]);
+                    }
+                }
+                gurobi_model->update();
+                delete[] constrs; // Don't forget to free memory!
+            }
         } 
         else if (is_spectral_clustering){
             success = spectralRounding();
@@ -17,7 +33,12 @@ bool RoundingHeuristic::run(int maxIterations) {
         else {
             Eigen::MatrixXd topk_eigenvectors = computeTopKEigenvectors();
             std::vector<Eigen::VectorXd> initial_centroids = generateInitialCentroids(topk_eigenvectors);
-            success = runRegularLloyd(initial_centroids, maxIterations);
+            if (constraints != nullptr && !constraints->empty()) {
+                std::cout<<"run constrained lloyd"<<std::endl;
+                success = runConstrainedLloyd(initial_centroids, maxIterations);
+            } else {
+                success = runRegularLloyd(initial_centroids, maxIterations);
+            }
         }
         
         // if (success) {
@@ -33,6 +54,29 @@ bool RoundingHeuristic::run(int maxIterations) {
     } catch (const std::exception& e) {
         std::cerr << "Error in rounding heuristic: " << e.what() << std::endl;
         return false;
+    }
+}
+
+void RoundingHeuristic::setConstraints(const std::vector<BranchConstraint>& constr) {
+    constraints = &constr; 
+    // if it is fair clustering, we add constraints to the gurobi model
+    if (is_fair_clustering && gurobi_model && x_vars) {
+        for (const auto& bc : *constraints) {
+            if (bc.type == BranchType::SAME_CLUSTER) {
+                // X(i,j) = X(i,i) = X(j,j)
+                for (int c = 0; c < k; ++c) {
+                    gurobi_model->addConstr((*x_vars)[bc.i][c] - (*x_vars)[bc.j][c] == 0, 
+                                            "same_cluster_" + std::to_string(bc.i) + "_" + std::to_string(bc.j) + "_c" + std::to_string(c));
+                }
+            } else if (bc.type == BranchType::DIFF_CLUSTER) {
+                // X(i,j) = 0
+                for (int c = 0; c < k; ++c) {
+                    gurobi_model->addConstr((*x_vars)[bc.i][c] + (*x_vars)[bc.j][c] <= 1, 
+                                            "diff_cluster_" + std::to_string(bc.i) + "_" + std::to_string(bc.j) + "_c" + std::to_string(c));
+                }
+            }
+        }
+        gurobi_model->update();
     }
 }
 
@@ -132,11 +176,19 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd
         std::vector<int> current_assignment(dataPoints.size(), -1);
         
         int N = dataPoints.size();
-        bool changed = true;
+        bool changed;
         
         // Initial assignment using fair clustering
-        changed = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
+        FairAssignStatus initial_status = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
                                         *gurobi_model, *x_vars);
+        
+        if (initial_status == FairAssignStatus::INFEASIBLE || initial_status == FairAssignStatus::UNBOUNDED) {
+            std::cerr << "Initial fair assignment is infeasible. Cannot proceed with fair Lloyd." << std::endl;
+            is_infeasible = true;
+            return false;
+        }
+        
+        changed = (initial_status == FairAssignStatus::SUCCESS);
         
         double currentWCSS =  computeWCSS(dataPoints, current_centroids, current_assignment);
         //std::cout << "Initial fair assignment objective: " << currentWCSS << std::endl;
@@ -176,8 +228,16 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd
             }
             
             // Do fair assignment with new centroids
-            changed = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
+            FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
                                            *gurobi_model, *x_vars);
+            
+            if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
+                std::cerr << "Fair assignment became infeasible at iteration " << iter << ". Stopping early." << std::endl;
+                is_infeasible = true;
+                break;
+            }
+            
+            changed = (assign_status == FairAssignStatus::SUCCESS);
         }
         
         // Store final results
@@ -274,18 +334,142 @@ bool RoundingHeuristic::spectralRounding(){
     for (int i = 0; i < Xsol.rows(); ++i) {
         stacked_eigvectors[i] = eigenvectors.row(i).transpose();
     }
-    // run Lloyd's algorithm on the stacked eigenvectors
-    double bestClusteringCost = kInfinity;
-    for (int i = 0; i < 100; i++) {
-        double ClusteringCost;
-        std::vector<int> lloydAssignment;
-        std::tie(ClusteringCost, lloydAssignment) = runKMeans(stacked_eigvectors, k, 100000, i+3);
+    
+    // Check if we have constraints to apply
+    if (constraints != nullptr && !constraints->empty()) {
+        // Run constrained Lloyd's algorithm on the stacked eigenvectors
+        std::cout << "Running constrained Lloyd's algorithm on stacked eigenvectors" << std::endl;
         
-        if (bestClusteringCost > ClusteringCost) {
-            bestClusteringCost = ClusteringCost;
-            final_assignment = std::move(lloydAssignment);
+        double bestClusteringCost = kInfinity;
+        std::vector<int> bestAssignment;
+        
+        // Try multiple random initializations with constrained Lloyd
+        for (int i = 0; i < 100; i++) {
+            // Randomly pick initial centroids using K-means++ initialization
+            std::vector<Eigen::VectorXd> initial_centroids = initializeCentroidsPlusPlus(stacked_eigvectors, k, i + 42);
+            
+            // Get initial assignment based on these centroids
+            std::vector<int> constrained_assignment(stacked_eigvectors.size(), -1);
+            assignClusters(stacked_eigvectors, initial_centroids, constrained_assignment);
+            
+            // Now run constrained Lloyd iteratively until convergence
+            bool changed = true;
+            int iteration = 0;
+            const int max_iter = 1000;
+            
+            while (changed && iteration < max_iter) {
+                std::vector<Eigen::VectorXd> old_centroids = initial_centroids;
+                
+                // Update centroids
+                updateCentroids(stacked_eigvectors, initial_centroids, constrained_assignment, k);
+                
+                // Check centroid convergence
+                double centroid_shift_sq = 0.0;
+                double centroid_norm_sq = 0.0;
+                for (size_t c = 0; c < initial_centroids.size(); ++c) {
+                    centroid_shift_sq += (initial_centroids[c] - old_centroids[c]).squaredNorm();
+                    centroid_norm_sq += initial_centroids[c].squaredNorm();
+                }
+                
+                if (centroid_norm_sq > 0 && centroid_shift_sq <= 1e-6 * centroid_norm_sq) {
+                    break;  // Centroids converged
+                }
+                
+                // Reassign clusters with constraints
+                changed = ConstrainedAssignClusters(stacked_eigvectors, initial_centroids, constrained_assignment, *constraints);
+                iteration++;
+            }
+            
+            double constrained_cost = computeWCSS(stacked_eigvectors, initial_centroids, constrained_assignment);
+            
+            if (bestClusteringCost > constrained_cost) {
+                bestClusteringCost = constrained_cost;
+                bestAssignment = std::move(constrained_assignment);
+            }
+        }
+        
+        final_assignment = std::move(bestAssignment);
+    } else {
+        // Run regular Lloyd's algorithm on the stacked eigenvectors (no constraints)
+        double bestClusteringCost = kInfinity;
+        for (int i = 0; i < 100; i++) {
+            double ClusteringCost;
+            std::vector<int> lloydAssignment;
+            std::tie(ClusteringCost, lloydAssignment) = runKMeans(stacked_eigvectors, k, 100000, i+3);
+            
+            if (bestClusteringCost > ClusteringCost) {
+                bestClusteringCost = ClusteringCost;
+                final_assignment = std::move(lloydAssignment);
+            }
         }
     }
 
     return true;
+}
+
+bool RoundingHeuristic::runConstrainedLloyd(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations) {
+    try {
+        if (constraints == nullptr) {
+            throw std::runtime_error("Constraints not set for constrained Lloyd");
+        }
+        
+        std::vector<Eigen::VectorXd> current_centroids = initial_centroids;
+        std::vector<int> current_assignment(dataPoints.size(), -1);
+
+        int N = dataPoints.size();
+        bool changed = true;
+        
+        // Initial assignment with constraints
+        changed = ConstrainedAssignClusters(dataPoints, current_centroids, current_assignment, *constraints);
+        double currentWCSS = computeWCSS(dataPoints, current_centroids, current_assignment);
+        //std::cout << "Initial constrained assignment objective: " << currentWCSS << std::endl;
+        
+        for (int iter = 0; iter < maxIterations && changed; ++iter) {
+            // std::cout << "Constrained Lloyd iteration " << iter + 1 << std::endl;
+            
+            if (!changed) {
+                std::cout << "No assignment changes, converged." << std::endl;
+                break;
+            }
+            
+            std::vector<Eigen::VectorXd> oldCentroids = current_centroids;
+            
+            // Update centroids
+            updateCentroids(dataPoints, current_centroids, current_assignment, k);
+            currentWCSS = computeWCSS(dataPoints, current_centroids, current_assignment);
+            
+            // Check convergence
+            double centroidShiftSquared = 0.0;
+            double centroidNormSquared = 0.0;
+            
+            for (size_t i = 0; i < current_centroids.size(); ++i) {
+                centroidShiftSquared += (current_centroids[i] - oldCentroids[i]).squaredNorm();
+                centroidNormSquared += current_centroids[i].squaredNorm();
+            }
+
+            if (centroidNormSquared > 0 && 
+                centroidShiftSquared <= 1e-6 * centroidNormSquared) {
+                // std::cout << "Centroids converged." << std::endl;
+                break;
+            }
+            
+            // Reassign clusters with constraints
+            changed = ConstrainedAssignClusters(dataPoints, current_centroids, current_assignment, *constraints);
+        }
+        
+        // Final centroid update
+        updateCentroids(dataPoints, current_centroids, current_assignment, k);
+        currentWCSS = computeWCSS(dataPoints, current_centroids, current_assignment);
+        //std::cout << "Final constrained assignment objective: " << currentWCSS << std::endl;
+        
+        final_centroids = current_centroids;
+        final_assignment = current_assignment;
+        
+        //std::cout << "Constrained Lloyd completed successfully" << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error in constrained Lloyd: " << e.what() << std::endl;
+        return false;
+    }
 }

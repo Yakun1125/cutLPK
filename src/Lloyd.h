@@ -4,11 +4,14 @@
 #include <Eigen/Eigenvalues>
 #include <vector>
 #include <random>
+#include "Utils_Struct.h"
 
 // Randomly Initialize centroids using kmeans++
 std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen::VectorXd>& dataPoints, int k, int random_seed);
 // Assign datapoints to closest center and check if assignment changes. If so, return true.
 bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment);
+// Constrained version that respects must-link and cannot-link constraints
+bool ConstrainedAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints);
 // Update centroids if assignment changes.
 void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment, int k);
 // Compute within cluster distance

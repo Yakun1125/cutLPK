@@ -8,6 +8,9 @@
 #include "Rounding_heuristic.h"
 #include "spectral_heuristic.h"
 #include "iterative_cutting_plane.h"
+#include "branch_and_bound.h"
+#include "ordinary_kmeans_solver.h"
+#include "fair_kmeans_solver.h"
 #include <limits>
 #include <chrono>
 #include <unordered_map>
@@ -56,7 +59,15 @@ int main(int argc, char* argv[]) {
         else if (key == "lloyd_random_starts") params.lloyd_num_random_starts = std::stoi(value);
         else if (key == "is_spectral_clustering") params.is_spectral_clustering = (value == "true" || value == "1");
         else if (key == "output_file") params.cutting_plane_output_file = value;    
-        else if (key == "group_file") params.fair_clustering_group_file = value;    
+        else if (key == "bnb_output_file") params.bnb_output_file = value;    
+        else if (key == "group_file") params.fair_clustering_group_file = value;   
+        else if (key == "num_iter_no_improve") params.cutting_plane_num_iter_no_improve = std::stoi(value);
+        else if (key == "bnb_node_limit") params.bnb_node_limit = std::stoi(value);
+        else if (key == "bnb_time_limit") params.bnb_time_limit = std::stod(value);
+        else if (key == "bnb_gap_tol") params.bnb_gap_tol = std::stod(value);
+        else if (key == "bnb_global_ub") params.bnb_global_ub = std::stod(value); 
+        else if (key == "bnb_verbose") params.bnb_verbose = std::stoi(value);
+        else if (key == "bnb_output_level") params.bnb_output_level = std::stoi(value); 
     }
 
     if (params.cutting_plane_output_file.empty()) {
@@ -68,6 +79,18 @@ int main(int argc, char* argv[]) {
             params.cutting_plane_output_file += "_spectral";
         }
         params.cutting_plane_output_file += "_output.txt";
+    }
+
+    // Setup BnB output file with similar naming style
+    if (params.bnb_output_file.empty()) {
+        params.bnb_output_file = std::string(dataFile) + "_K" + std::to_string(K);
+        if (!params.fair_clustering_fairness_type.empty()) {
+            params.bnb_output_file += "_" + params.fair_clustering_fairness_type;
+        }
+        if (params.is_spectral_clustering) {
+            params.bnb_output_file += "_spectral";
+        }
+        params.bnb_output_file += "_bnb_log.txt";
     }
 
     // time stamp to output file
@@ -110,77 +133,26 @@ int main(int argc, char* argv[]) {
         }
         file.close();
 
-        int N = dataPoints.size();
-        Eigen::MatrixXd dis_matrix; dis_matrix.resize(N, N);
-        Eigen::MatrixXd Xsol;
-        Eigen::MatrixXd Lloyd_Xsol; Lloyd_Xsol.resize(N, N);
-        std::vector<validInequality> cutting_planes;
-        // Compute squared Euclidean distances_
-        for (int i = 0; i < N; ++i) {
-            dis_matrix(i, i) = 0;
-            for (int j = i + 1; j < N; ++j) {
-                dis_matrix(i, j) = (dataPoints[i] - dataPoints[j]).squaredNorm();
-                dis_matrix(j, i) = dis_matrix(i, j);
-            }
-        }
-
-
+        const int N = static_cast<int>(dataPoints.size());
+        cutLPKSolveInfo cutLPK_info{};
         double initialLloydObj = kInfinity;
-        cutLPKSolveInfo cutLPK_info;
-        if (params.fair_clustering_fairness_type == ""){
-            std::cout << "Running ordinary clustering with K = " << K << std::endl;
-            LPK lp;
-            constructLPK(lp, dis_matrix, N, K);
         
-            // always perform KMeans if warm start is enabled
-
-            if (params.cutting_plane_warm_start > 0) {
-                double bestClusteringCost = kInfinity;
-                std::vector<int> bestlloydAssignment;
-                
-                for (int i = 0; i < params.lloyd_num_random_starts; i++) {
-                    double ClusteringCost;
-                    std::vector<int> lloydAssignment;
-                    std::tie(ClusteringCost, lloydAssignment) = runKMeans(dataPoints, K, 100000, i+3);
-                    
-                    if (bestClusteringCost > ClusteringCost) {
-                        bestClusteringCost = ClusteringCost;
-                        bestlloydAssignment = std::move(lloydAssignment);
-                    }
-                }
-                
-                initialLloydObj = bestClusteringCost;
-                Lloyd_Xsol = createPartitionMatrix(bestlloydAssignment, K);
-                std::cout << "Lloyd objective: " << initialLloydObj << std::endl;
-                addInitialCuts(params, N, Lloyd_Xsol, lp, cutting_planes);
+        if (params.fair_clustering_fairness_type.empty()){
+            OrdinaryKMeansResult result = solveOrdinaryKMeans(dataPoints, K, params);
+            if (result.icp_status == ICPStatus::ERROR) {
+                return static_cast<int>(result.icp_status);
             }
-            
-            lp.setupLPK();
-            RoundingHeuristic roundingHeuristic(dataPoints,dis_matrix, K, Xsol);
-            cutLPK_info.upper_bound = initialLloydObj;
-            ICPStatus retcode = iterative_cutting_plane_solver(
-                N,
-                K, 
-                cutLPK_info, 
-                cutting_planes, 
-                lp, 
-                roundingHeuristic,
-                params
-                );
-            if (retcode == ICPStatus::ERROR) {
-                std::cerr << "Error in iterative cutting plane solver: " << static_cast<int>(retcode) << std::endl;
-                return static_cast<int>(retcode);
-            }
+            initialLloydObj = result.lloyd_objective;
+            cutLPK_info = result.cut_info;
         }
         else{
-            std::cout << "Running fair clustering with K = " << K << " and fairness type: " << params.fair_clustering_fairness_type << std::endl;
+            // Load group information from file
             if (params.fair_clustering_group_file.empty()) {
                 throw std::runtime_error("Fair clustering requires a 'group_file' parameter.");
             }
 
             std::ifstream fair_file(params.fair_clustering_group_file);
-            if (!fair_file.is_open())
-            {
+            if (!fair_file.is_open()) {
                 throw std::runtime_error("Unable to open file: " + params.fair_clustering_group_file);
             }
 
@@ -192,15 +164,13 @@ int main(int argc, char* argv[]) {
 
             // Read the file line by line
             std::string fair_line;
-            while (std::getline(fair_file, fair_line))
-            {
+            while (std::getline(fair_file, fair_line)) {
                 int group;
                 std::stringstream ss(fair_line);
                 ss >> group;
 
                 // Check if group is new, if so, add it to the map
-                if (groupMap.find(group) == groupMap.end())
-                {
+                if (groupMap.find(group) == groupMap.end()) {
                     groupMap[group] = numGroups++;
                     groupRatio.push_back(0); // Initialize ratio for new group
                 }
@@ -216,83 +186,19 @@ int main(int argc, char* argv[]) {
             int numPoints = groupAffiliations.size();
             dataGroups.resize(numPoints, std::vector<bool>(numGroups, false));
 
-            for (int i = 0; i < numPoints; ++i)
-            {
+            for (int i = 0; i < numPoints; ++i) {
                 int groupIdx = groupAffiliations[i];
                 dataGroups[i][groupIdx] = true;
             }
             fair_file.close();
 
-            GRBEnv env = GRBEnv(true);
-            env.set(GRB_IntParam_OutputFlag, 0);   
-            setupGurobiWLS(env);
-            env.start();
-
-            std::cout << "numGroups: " << numGroups << std::endl;
-            std::cout << "dataPoints size: " << dataPoints.size() << std::endl;
-
-            // we have two fairness types: alpha and tau
-            std::unique_ptr<GRBModel> model;
-            std::vector<std::vector<GRBVar>> x_vars;
-            std::vector<double> fairness_param_adjusted;
-
-            if (params.fair_clustering_fairness_type == "alpha") {
-                //fairness_param_adjusted = alpha_fairParam_adjustment(groupRatio, params.fairness_param, dataPoints.size());
-                fairness_param_adjusted = std::vector<double>(numGroups, params.fair_clustering_fairness_param);
-                auto result = GRB_buildFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
-                model = std::move(result.first);
-                x_vars = std::move(result.second);
-            } else if (params.fair_clustering_fairness_type == "tau") {
-                fairness_param_adjusted = tau_fairParam_adjustment(groupRatio, params.fair_clustering_fairness_param, dataPoints.size(), K);
-                auto result = GRB_buildTauFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
-                model = std::move(result.first);
-                x_vars = std::move(result.second);
-            } else {
-                throw std::runtime_error("Unknown fair type: " + params.fair_clustering_fairness_type);
+            // Solve fair kmeans clustering
+            FairKMeansResult result = solveFairKMeans(dataPoints, K, dataGroups, groupRatio, params);
+            if (result.icp_status == ICPStatus::ERROR) {
+                return static_cast<int>(result.icp_status);
             }
-            if (!model) {
-                throw std::runtime_error("Failed to create Gurobi model for fair assignment.");
-            }
-            LPK fairlp;
-
-            constructFairLPK(fairlp, dis_matrix, N, K, dataGroups, groupRatio, fairness_param_adjusted, params.fair_clustering_fairness_type);
-
-            if (params.cutting_plane_warm_start > 0) {
-                double bestClusteringCost = kInfinity;
-                std::vector<int> bestlloydAssignment;
-                for (int i = 0; i < params.lloyd_num_random_starts; i++) {
-                    double ClusteringCost;
-                    std::vector<int> lloydAssignment;
-                    std::tie(ClusteringCost, lloydAssignment) = runFairKMeans(dataPoints, K, 100000, i, *model, x_vars);
-                    if (bestClusteringCost > ClusteringCost) {
-                        bestClusteringCost = ClusteringCost;
-                        bestlloydAssignment = std::move(lloydAssignment);
-                    }
-                }
-                initialLloydObj = bestClusteringCost;
-                Lloyd_Xsol = createPartitionMatrix(bestlloydAssignment, K);
-                addInitialCuts(params, N, Lloyd_Xsol, fairlp, cutting_planes);
-                std::cout << "Fair Lloyd objective: " << initialLloydObj << std::endl;
-            }
-
-            
-            fairlp.setupLPK();
-
-            RoundingHeuristic roundingHeuristic(dataPoints, dis_matrix, K, Xsol, model.get(), &x_vars);            
-            cutLPK_info.upper_bound = initialLloydObj;
-            ICPStatus retcode = iterative_cutting_plane_solver(
-                N,
-                K, 
-                cutLPK_info, 
-                cutting_planes, 
-                fairlp, 
-                roundingHeuristic,
-                params
-                );
-            if (retcode == ICPStatus::ERROR) {
-                std::cerr << "Error in iterative cutting plane solver: " << static_cast<int>(retcode) << std::endl;
-                return static_cast<int>(retcode);
-            }
+            initialLloydObj = result.lloyd_objective;
+            cutLPK_info = result.cut_info;
         }
       
         // print out some final information

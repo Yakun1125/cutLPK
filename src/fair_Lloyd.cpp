@@ -254,17 +254,107 @@ double find_simplified_fraction_Tau(
     return target_factor; 
 }
 
-std::vector<double> alpha_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N)
+std::vector<double> alpha_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K)
 {
     std::vector<double> adjusted_factors(groupRatio.size(), 1.0);
+    
     for (int g = 0; g < groupRatio.size(); g++)
     {
-        int numerator = groupRatio[g];
-        int denominator = N;
-        double target_factor = fairness_param;
-        double adjusted_factor = find_simplified_fraction(numerator, denominator, target_factor);
-        adjusted_factors[g] = adjusted_factor;
+        int C = groupRatio[g];  // numerator (group size)
+        int D = N;              // denominator (total size)
+        double alpha = fairness_param;
+        
+        // Check if the problem is feasible at all
+        // We need A*K <= C and B*K <= D and A/B >= (C*alpha)/D
+        // The maximum possible A/B is (C/K)/(1) = C/K (when A = C/K, B = 1)
+        // The minimum required A/B is (C*alpha)/D
+        double max_possible_ratio = static_cast<double>(C) / K;
+        double min_required_ratio = (static_cast<double>(C) * alpha) / D;
+        
+        if (max_possible_ratio < min_required_ratio) {
+            std::cerr << "ERROR: Infeasible fairness parameter for group " << g << "!" << std::endl;
+            std::cerr << "Group size: " << C << ", Total size: " << D << ", K: " << K << std::endl;
+            std::cerr << "Fairness parameter (alpha): " << alpha << std::endl;
+            std::cerr << "Maximum achievable ratio: " << max_possible_ratio << std::endl;
+            std::cerr << "Minimum required ratio: " << min_required_ratio << std::endl;
+            std::cerr << "Suggestion: Reduce alpha to at most " << (max_possible_ratio * D) / C << std::endl;
+            
+            // Use the maximum achievable alpha as fallback
+            double max_achievable_alpha = (max_possible_ratio * D) / C;
+            std::cerr << "Using fallback alpha = " << max_achievable_alpha << " for group " << g << std::endl;
+            alpha = max_achievable_alpha;
+            min_required_ratio = (static_cast<double>(C) * alpha) / D;
+        }
+        
+        // Now find the optimal A/B
+        double target_ratio = (C * alpha) / D;
+        
+        int best_A = -1, best_B = -1;
+        double min_diff = std::numeric_limits<double>::infinity();
+        
+        // Iterate through all possible values of B
+        int max_B = D / K;  // From constraint B*K <= D
+        
+        bool found_solution = false;
+        for (int B = 1; B <= max_B; ++B) {
+            // From constraint A/B >= (C*alpha)/D, we get A >= B * (C*alpha)/D
+            double min_A_exact = B * target_ratio;
+            int min_A = static_cast<int>(std::ceil(min_A_exact));
+            
+            // From constraint A*K <= C, we get A <= C/K
+            int max_A = C / K;
+            
+            // Check if there's a valid A for this B
+            if (min_A <= max_A) {
+                found_solution = true;
+                
+                // Choose the A that minimizes |A/B - target_ratio|
+                double ratio_min_A = static_cast<double>(min_A) / B;
+                double diff_min_A = std::abs(ratio_min_A - target_ratio);
+                
+                if (diff_min_A < min_diff) {
+                    min_diff = diff_min_A;
+                    best_A = min_A;
+                    best_B = B;
+                }
+                
+                // Also check max_A in case it gives a smaller difference
+                if (max_A > min_A) {
+                    double ratio_max_A = static_cast<double>(max_A) / B;
+                    double diff_max_A = std::abs(ratio_max_A - target_ratio);
+                    
+                    if (diff_max_A < min_diff) {
+                        min_diff = diff_max_A;
+                        best_A = max_A;
+                        best_B = B;
+                    }
+                }
+            }
+        }
+        
+        if (!found_solution || best_A == -1) {
+            std::cerr << "ERROR: No valid solution found for group " << g << "!" << std::endl;
+            std::cerr << "Using original fairness parameter as fallback." << std::endl;
+            adjusted_factors[g] = fairness_param;
+        } else {
+            // Calculate the adjusted factor
+            double optimal_ratio = static_cast<double>(best_A) / best_B;
+            double original_ratio = static_cast<double>(C) / D;
+            adjusted_factors[g] = optimal_ratio / original_ratio;
+            
+            // std::cout << "Group " << g << " fairness adjustment:\n";
+            // std::cout << "  Original group ratio: " << C << "/" << D << " = " << original_ratio << "\n";
+            // std::cout << "  Target fairness factor: " << fairness_param << "\n";
+            // std::cout << "  Optimal A/B: " << best_A << "/" << best_B << " = " << optimal_ratio << "\n";
+            // std::cout << "  Adjusted fairness factor: " << adjusted_factors[g] << "\n";
+            // std::cout << "  Constraint checks:\n";
+            // std::cout << "    A*K <= C: " << best_A << "*" << K << " = " << best_A*K << " <= " << C << " ✓\n";
+            // std::cout << "    B*K <= D: " << best_B << "*" << K << " = " << best_B*K << " <= " << D << " ✓\n";
+            // std::cout << "    A/B >= target: " << optimal_ratio << " >= " << target_ratio << " ✓\n";
+            // std::cout << "    Difference from target: " << min_diff << "\n\n";
+        }
     }
+    
     return adjusted_factors;
 }
 
@@ -477,7 +567,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
     return std::make_pair(std::move(model), x);
 }
 
-bool GRB_fairAssignClusters(const std::vector<Eigen::VectorXd> &dataPoints, std::vector<Eigen::VectorXd> &centroids, std::vector<int> &assignment,
+FairAssignStatus GRB_fairAssignClusters(const std::vector<Eigen::VectorXd> &dataPoints, std::vector<Eigen::VectorXd> &centroids, std::vector<int> &assignment,
                             GRBModel &model, std::vector<std::vector<GRBVar>> &x)
 {
     // Number of data points
@@ -524,30 +614,35 @@ bool GRB_fairAssignClusters(const std::vector<Eigen::VectorXd> &dataPoints, std:
                     }
                 }
             }
-            return changed;
+            return changed ? FairAssignStatus::SUCCESS : FairAssignStatus::CONVERGED;
         }
         else if (model.get(GRB_IntAttr_Status) == GRB_INF_OR_UNBD)
         {
             std::cout << "Model is infeasible or unbounded." << std::endl;
-            return false;
+            return FairAssignStatus::UNBOUNDED;
+        }
+        else if (model.get(GRB_IntAttr_Status) == GRB_INFEASIBLE)
+        {
+            std::cout << "Model is infeasible." << std::endl;
+            return FairAssignStatus::INFEASIBLE;
         }
         else
         {
             // No optimal solution found
             std::cout << "No optimal solution found." << std::endl;
-            return false;
+            return FairAssignStatus::ERROR;
         }
     }
     catch (GRBException e)
     {
         std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
         std::cout << e.getMessage() << std::endl;
-        return false;
+        return FairAssignStatus::ERROR;
     }
     catch (...)
     {
         std::cout << "Unknown exception during optimization." << std::endl;
-        return false;
+        return FairAssignStatus::ERROR;
     }
 }
 
@@ -588,7 +683,12 @@ std::pair<double, std::vector<int>> runFairKMeans(const std::vector<Eigen::Vecto
             break;
         }
         // if new centroids shifted, do assignment
-        changed = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
+        FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
+        if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
+            std::cerr << "Fair assignment became infeasible during Lloyd iteration. Stopping early." << std::endl;
+            break;
+        }
+        changed = (assign_status == FairAssignStatus::SUCCESS);
     }
 
     // Eigen::MatrixXd PartitionMatrix = createPartitionMatrix(assignment, k);

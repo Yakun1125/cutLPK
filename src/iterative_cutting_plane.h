@@ -9,5 +9,7 @@ ICPStatus iterative_cutting_plane_solver(
     std::vector<validInequality>& cutting_planes, 
     LPK& lp, 
     RoundingHeuristic& roundingHeuristic,
-    const parameters& params
+    const parameters& params,
+    const std::vector<double>* primal_init = nullptr,  // Initial primal solution for warm start
+    const std::vector<double>* dual_init = nullptr     // Initial dual solution for warm start
 );

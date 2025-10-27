@@ -1,5 +1,7 @@
 #include "Lloyd.h"
 #include <iostream>
+#include <queue>
+#include <algorithm>
 
 std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen::VectorXd>& dataPoints, int k, int random_seed) {
 	std::vector<Eigen::VectorXd> centroids;
@@ -44,13 +46,152 @@ bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<
 	return changed;
 }
 
+bool ConstrainedAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints) {
+	bool changed = false;
+	int n = dataPoints.size();
+	int k = centroids.size();
+	
+	// Build constraint adjacency lists for efficient lookup
+	std::vector<std::vector<int>> must_link(n), cannot_link(n);
+	for (const auto& constraint : constraints) {
+		if (constraint.type == BranchType::SAME_CLUSTER) {
+			must_link[constraint.i].push_back(constraint.j);
+			must_link[constraint.j].push_back(constraint.i);
+		} else { // DIFF_CLUSTER
+			cannot_link[constraint.i].push_back(constraint.j);
+			cannot_link[constraint.j].push_back(constraint.i);
+		}
+	}
+	
+	// Find connected components for must-link constraints (transitive closure)
+	std::vector<int> component_id(n, -1);
+	int num_components = 0;
+	for (int i = 0; i < n; ++i) {
+		if (component_id[i] == -1) {
+			// Start DFS/BFS to find connected component
+			std::vector<int> component;
+			std::vector<bool> visited(n, false);
+			std::queue<int> q;
+			q.push(i);
+			visited[i] = true;
+			
+			while (!q.empty()) {
+				int curr = q.front();
+				q.pop();
+				component.push_back(curr);
+				
+				for (int neighbor : must_link[curr]) {
+					if (!visited[neighbor]) {
+						visited[neighbor] = true;
+						q.push(neighbor);
+					}
+				}
+			}
+			
+			// Assign component ID to all points in this component
+			for (int point : component) {
+				component_id[point] = num_components;
+			}
+			num_components++;
+		}
+	}
+	
+	// For each connected component, assign all points to the same cluster
+	std::vector<int> new_assignment = assignment; // Copy current assignment
+	
+	for (int comp = 0; comp < num_components; ++comp) {
+		// Find all points in this component
+		std::vector<int> component_points;
+		for (int i = 0; i < n; ++i) {
+			if (component_id[i] == comp) {
+				component_points.push_back(i);
+			}
+		}
+		
+		if (component_points.empty()) continue;
+		
+		// Find the best cluster for this entire component
+		// Try each possible cluster and check if it violates cannot-link constraints
+		std::vector<double> component_costs(k, 0.0);
+		std::vector<bool> cluster_valid(k, true);
+		
+		for (int cluster = 0; cluster < k; ++cluster) {
+			bool valid = true;
+			double total_cost = 0.0;
+			
+			// Check if this cluster assignment violates cannot-link constraints
+			for (int point : component_points) {
+				// Check cannot-link with points already assigned to this cluster
+				for (int other_point = 0; other_point < n; ++other_point) {
+					if (new_assignment[other_point] == cluster && 
+						std::find(cannot_link[point].begin(), cannot_link[point].end(), other_point) != cannot_link[point].end()) {
+						valid = false;
+						break;
+					}
+				}
+				if (!valid) break;
+				
+				// Add distance cost
+				total_cost += (dataPoints[point] - centroids[cluster]).squaredNorm();
+			}
+			
+			cluster_valid[cluster] = valid;
+			component_costs[cluster] = total_cost;
+		}
+		
+		// Find the best valid cluster
+		int best_cluster = -1;
+		double best_cost = std::numeric_limits<double>::max();
+		
+		for (int cluster = 0; cluster < k; ++cluster) {
+			if (cluster_valid[cluster] && component_costs[cluster] < best_cost) {
+				best_cost = component_costs[cluster];
+				best_cluster = cluster;
+			}
+		}
+		
+		// If no valid cluster found, this is an infeasible assignment
+		// For now, assign to closest cluster (this shouldn't happen in a well-formed problem)
+		if (best_cluster == -1) {
+			std::cerr << "Warning: No valid cluster found for component containing point " << component_points[0] << std::endl;
+			best_cluster = 0;
+			double min_dist = std::numeric_limits<double>::max();
+			for (int cluster = 0; cluster < k; ++cluster) {
+				double total_dist = 0.0;
+				for (int point : component_points) {
+					total_dist += (dataPoints[point] - centroids[cluster]).squaredNorm();
+				}
+				if (total_dist < min_dist) {
+					min_dist = total_dist;
+					best_cluster = cluster;
+				}
+			}
+		}
+		
+		// Assign all points in component to the best cluster
+		for (int point : component_points) {
+			if (new_assignment[point] != best_cluster) {
+				new_assignment[point] = best_cluster;
+				changed = true;
+			}
+		}
+	}
+	
+	assignment = new_assignment;
+	return changed;
+}
+
 void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment, int k) {
 	std::vector<int> clusterSizes(k, 0);
 	std::vector<Eigen::VectorXd> newCentroids(k, Eigen::VectorXd::Zero(centroids[0].size()));
 
 	for (size_t i = 0; i < dataPoints.size(); ++i) {
-		newCentroids[assignment[i]] += dataPoints[i];
-		clusterSizes[assignment[i]]++;
+		if (assignment[i] >= 0 && assignment[i] < k) {
+			newCentroids[assignment[i]] += dataPoints[i];
+			clusterSizes[assignment[i]]++;
+		} else {
+			std::cerr << "Warning: Invalid assignment " << assignment[i] << " for point " << i << " in updateCentroids" << std::endl;
+		}
 	}
 
 	for (int j = 0; j < k; ++j) {
@@ -63,7 +204,11 @@ void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector
 double computeWCSS(const std::vector<Eigen::VectorXd>& dataPoints, const std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment) {
 	double totalWCSS = 0.0;
 	for (size_t i = 0; i < dataPoints.size(); ++i) {
-		totalWCSS += (dataPoints[i]-centroids[assignment[i]]).squaredNorm();
+		if (assignment[i] >= 0 && assignment[i] < (int)centroids.size()) {
+			totalWCSS += (dataPoints[i]-centroids[assignment[i]]).squaredNorm();
+		} else {
+			std::cerr << "Warning: Invalid assignment " << assignment[i] << " for point " << i << std::endl;
+		}
 	}
 	return totalWCSS;
 }

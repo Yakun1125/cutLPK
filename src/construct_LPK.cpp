@@ -31,13 +31,13 @@ void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K) {
 	basic_triplets.reserve((N + 1) * N);
 	// Add non-zeros for the original matrix part
 	for (int i = 0; i < N; ++i) {
-		int col = i * (2 * N - i + 1) / 2;
+		int col = getPairIndex(i,i,N);
 		basic_triplets.emplace_back(0, col, 1); // First row, diagonal elements set to 1
 	}
 
 	for (int i = 1; i <= N; ++i) {
 		for (int j = 0; j < N; ++j) {
-			int col = std::min(i - 1, j) * (2 * N - std::min(i - 1, j) + 1) / 2 + std::max(i - 1, j) - std::min(i - 1, j);
+			int col = getPairIndex(i-1,j,N);//std::min(i - 1, j) * (2 * N - std::min(i - 1, j) + 1) / 2 + std::max(i - 1, j) - std::min(i - 1, j);
 			basic_triplets.emplace_back(i, col, 1); // Subsequent rows
 		}
 	}
@@ -46,7 +46,7 @@ void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K) {
 }
 
 void constructSpectralLPK(LPK& lp, Eigen::MatrixXd& L, int N, int K){
-    	lp.N = N;
+    lp.N = N;
 	int numVars = N * (N + 1) / 2;
 	lp.varLb = std::vector<double>(numVars, 0.0);
 	lp.varUb = std::vector<double>(numVars, 1.0);
@@ -79,13 +79,13 @@ void constructSpectralLPK(LPK& lp, Eigen::MatrixXd& L, int N, int K){
 	basic_triplets.reserve((N + 1) * N);
 	// Add non-zeros for the original matrix part
 	for (int i = 0; i < N; ++i) {
-		int col = i * (2 * N - i + 1) / 2;
+		int col = getPairIndex(i,i,N);
 		basic_triplets.emplace_back(0, col, 1); // First row, diagonal elements set to 1
 	}
 
 	for (int i = 1; i <= N; ++i) {
 		for (int j = 0; j < N; ++j) {
-			int col = std::min(i - 1, j) * (2 * N - std::min(i - 1, j) + 1) / 2 + std::max(i - 1, j) - std::min(i - 1, j);
+			int col = getPairIndex(i - 1, j, N);
 			basic_triplets.emplace_back(i, col, 1); // Subsequent rows
 		}
 	}
@@ -164,13 +164,13 @@ void constructFairLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::v
     basic_triplets.reserve(estimated_nonzeros);
     // Add non-zeros for the original matrix part
     for (int i = 0; i < N; ++i) {
-        int col = i * (2 * N - i + 1) / 2;
+        int col = getPairIndex(i, i, N);
         basic_triplets.emplace_back(0, col, 1); // First row, diagonal elements set to 1
     }
 
     for (int i = 1; i <= N; ++i) {
         for (int j = 0; j < N; ++j) {
-            int col = std::min(i - 1, j) * (2 * N - std::min(i - 1, j) + 1) / 2 + std::max(i - 1, j) - std::min(i - 1, j);
+            int col = getPairIndex(i - 1, j, N);
             basic_triplets.emplace_back(i, col, 1); // Subsequent rows
         }
     }
@@ -179,7 +179,7 @@ void constructFairLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::v
         for (int g = 0; g < numGroups; g++) {
             for (int j = 0; j < N; j++) {
                 for (int i = 0; i < N; ++i) {
-                    int col = std::min(i, j) * (2 * N - std::min(i, j) + 1) / 2 + std::max(i, j) - std::min(i, j);
+                    int col = getPairIndex(i, j, N);
                     if (dataGroups[i][g]) {
                         int index = baseIndex + g * N + j;
                         if (index >= lp.cons_lb_basic.size()) {
@@ -200,7 +200,7 @@ void constructFairLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K, std::v
                 int nonzero_count = 0; // counter for (g, j)
                 for (int i = 0; i < N; ++i)
                 {
-                    int col = std::min(i, j) * (2 * N - std::min(i, j) + 1) / 2 + std::max(i, j) - std::min(i, j);
+                    int col = getPairIndex(i, j, N);
                     if (i == j)
                     {
                         if (index >= lp.cons_lb_basic.size()){return;}                          
@@ -228,10 +228,10 @@ inline void addCut(std::vector<validInequality>& cuts, std::vector<Eigen::Triple
 cuts.emplace_back(validInequality(std::vector<int>{i, j, k}, violation));
 
 // Compute indices once to avoid repeating calculation
-const int ij_idx = std::min(i, j) * (2 * N - std::min(i, j) + 1) / 2 + std::max(i, j) - std::min(i, j);
-const int ik_idx = std::min(i, k) * (2 * N - std::min(i, k) + 1) / 2 + std::max(i, k) - std::min(i, k);
-const int ii_idx = i * (2 * N - i + 1) / 2;
-const int jk_idx = j * (2 * N - j + 1) / 2 + k - j;
+const int ij_idx = getPairIndex(i, j, N);
+const int ik_idx = getPairIndex(i, k, N);
+const int ii_idx = getPairIndex(i, i, N);
+const int jk_idx = getPairIndex(j, k, N);
 
 cuts_triplets.emplace_back(newRow, ij_idx, 1);
 cuts_triplets.emplace_back(newRow, ik_idx, 1);
