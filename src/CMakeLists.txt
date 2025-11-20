@@ -24,6 +24,7 @@ set(CUTLPK_CORE_SOURCES
     branch_and_bound.cpp
     ordinary_kmeans_solver.cpp
     fair_kmeans_solver.cpp
+    spectral_kmeans_solver.cpp
 )
 
 add_library(cutlpk_core STATIC ${CUTLPK_CORE_SOURCES})
@@ -107,7 +108,7 @@ target_include_directories(cutlpk_core PUBLIC ${CMAKE_CUDA_PATH}/include)
 ######################
 # cuPDLPx
 ######################
-set(CUPDLPX_INCLUDE_DIR "${CUPDLPX_ROOT}")
+set(CUPDLPX_INCLUDE_DIR "${CUPDLPX_ROOT}/include")
 set(CUPDLPX_LIB_DIR "${CUPDLPX_ROOT}/build")
 
 if(ENABLE_CUPDLPX)

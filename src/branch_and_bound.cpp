@@ -401,6 +401,7 @@ BnBStatus branch_and_bound_solver(
         node_params.cutting_plane_max_separation_time = 30;
         node_params.cutting_plane_num_iter_no_improve = 1;
         node_params.cutting_plane_verbose = 0;
+        node_params.cutting_plane_output_level = 0;
         node_params.cutting_plane_lb_solver_tol = 1e-5;
         node_params.cutting_plane_max_cuts_added_iter = node_cutting_planes.size();
         node_params.cutting_plane_remove_inactive_cuts = false;

@@ -5,7 +5,7 @@
 #include <cstring>
 
 #ifdef ENABLE_CUPDLPX
-#include "cupdlpx/interface.h"  
+#include "cupdlpx.h"  
 int solver_cupdlpx(
     double& dual_obj, double& primal_obj, Eigen::MatrixXd& Xsol,
     std::vector<validInequality>& cuts, LPK& lp,
@@ -17,12 +17,11 @@ int solver_cupdlpx(
 ) {
     int numVars = lp.N * (lp.N + 1) / 2;
     int numConstr = lp.consLb.size();
-
+    int solver_retcode = 0;
 
 	int numCuts = cuts.size();
     int cuts_idx_start = numConstr - numCuts;
     // --- BEGIN: Use cuPDLPx API ---
-    // Prepare matrix in CSC format (as an example)
     matrix_desc_t A_desc;
     A_desc.m = lp.consLb.size();
     A_desc.n = lp.objCoef.size();
@@ -40,13 +39,13 @@ int solver_cupdlpx(
 
         // Create problem
     lp_problem_t* prob = create_lp_problem(
-        &A_desc,  // A
         c,        // c
-        NULL,     // objective_constant
-        lp.varLb.data(), // var_lb (optional)
-        lp.varUb.data(), // var_ub (optional)
+        &A_desc,  // A
         l,        // con_lb
-        u         // con_ub
+        u,         // con_ub
+        lp.varLb.data(), // var_lb 
+        lp.varUb.data(), // var_ub 
+        NULL     // objective_constant
     );
         if (!prob) {
         std::cerr << "[solver_cupdlp] create_lp_problem failed." << std::endl;
@@ -84,6 +83,9 @@ int solver_cupdlpx(
         std::cerr << "[solver_cupdlp] solve_lp_problem failed." << std::endl;
         return 2;
     }
+    if (res->termination_reason == TERMINATION_REASON_TIME_LIMIT){
+        solver_retcode = 1;
+    }
 
     // Extract solution
     primal_obj = res->primal_objective_value;
@@ -109,7 +111,7 @@ int solver_cupdlpx(
         cuts[cut_idx].dual_value = res->dual_solution[cuts_idx_start + cut_idx];
     }
 
-    // --- Dual objective calculation (mimic original code) ---
+    // --- Dual objective calculation ---
     // Recompute r for dual objective
     Eigen::VectorXd dual_vec = Eigen::Map<const Eigen::VectorXd>(res->dual_solution, numConstr);
     r = lp.ConsMatrix.transpose() * dual_vec - Eigen::VectorXd::Map(lp.objCoef.data(), lp.objCoef.size());
@@ -152,7 +154,7 @@ int solver_cupdlpx(
     // Clean up
     cupdlpx_result_free(res);
 
-    return 0;
+    return solver_retcode;
     // --- END: Use cuPDLPx API ---
 }
 #endif

@@ -16,7 +16,7 @@ int spectralHeuristic(const Eigen::MatrixXd& L, int k, Eigen::MatrixXd& Spectral
     Eigen::VectorXd eigenvalues = eigensolver.eigenvalues().head(k);
 
     // Prepare data: rows of topk_eigenvectors
-    std::vector<Eigen::VectorXd> stacked_eigvectors(N);
+    VectorXdList stacked_eigvectors(N);
     for (int i = 0; i < N; ++i) {
         stacked_eigvectors[i] = eigenvectors.row(i).transpose();
     }

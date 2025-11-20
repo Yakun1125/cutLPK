@@ -1,5 +1,6 @@
 #pragma once
 #include "Lloyd.h"
+#include "Utils_Struct.h"
 #include "gurobi_c++.h"
 #include <memory> 
 #include <numeric>
@@ -39,10 +40,10 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
     const std::vector<int>& groupRatio,
     std::vector<double> fairness_param);
 
-FairAssignStatus GRB_fairAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, 
+FairAssignStatus GRB_fairAssignClusters(const VectorXdList& dataPoints, VectorXdList& centroids, 
     std::vector<int>& assignment, GRBModel& model,std::vector<std::vector<GRBVar>>& x);
 
-std::pair<double, std::vector<int>> runFairKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations,
+std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList& dataPoints, int k, int maxIterations,
      int random_seed, GRBModel& model,std::vector<std::vector<GRBVar>>& x);
 
 

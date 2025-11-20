@@ -15,7 +15,7 @@ struct FairKMeansResult {
 };
 
 FairKMeansResult solveFairKMeans(
-    const std::vector<Eigen::VectorXd>& dataPoints,
+    const VectorXdList& dataPoints,
     int K,
     const std::vector<std::vector<bool>>& dataGroups,
     const std::vector<int>& groupRatio,

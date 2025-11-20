@@ -6,6 +6,8 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <Eigen/Eigenvalues>
+#include <Eigen/StdVector>
+using VectorXdList = std::vector<Eigen::VectorXd, Eigen::aligned_allocator<Eigen::VectorXd>>;
 
 #include <iostream>
 #include <iomanip>

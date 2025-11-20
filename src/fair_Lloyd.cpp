@@ -411,7 +411,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
         for (int g = 0; g < numGroups; g++)
         {
             normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
-            // std::cout<<"ratio: "<<normalized_groupRatio[g]<<std::endl;
+            //std::cout<<"ratio: "<<normalized_groupRatio[g]<<std::endl;
         }
 
         // Fairness constraints
@@ -567,7 +567,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
     return std::make_pair(std::move(model), x);
 }
 
-FairAssignStatus GRB_fairAssignClusters(const std::vector<Eigen::VectorXd> &dataPoints, std::vector<Eigen::VectorXd> &centroids, std::vector<int> &assignment,
+FairAssignStatus GRB_fairAssignClusters(const VectorXdList &dataPoints, VectorXdList &centroids, std::vector<int> &assignment,
                             GRBModel &model, std::vector<std::vector<GRBVar>> &x)
 {
     // Number of data points
@@ -646,12 +646,12 @@ FairAssignStatus GRB_fairAssignClusters(const std::vector<Eigen::VectorXd> &data
     }
 }
 
-std::pair<double, std::vector<int>> runFairKMeans(const std::vector<Eigen::VectorXd> &dataPoints, int k, int maxIterations,
+std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints, int k, int maxIterations,
                                                   int random_seed, GRBModel &model, std::vector<std::vector<GRBVar>> &x)
 {
     int n = dataPoints.size();
     // initialized centroids and do assignment
-    std::vector<Eigen::VectorXd> centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
+    VectorXdList centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
     std::vector<int> assignment(n, -1);
     bool changed = assignClusters(dataPoints, centroids, assignment);
     double currentWCSS = computeWCSS(dataPoints, centroids, assignment);
@@ -663,7 +663,7 @@ std::pair<double, std::vector<int>> runFairKMeans(const std::vector<Eigen::Vecto
         {
             break;
         }
-        std::vector<Eigen::VectorXd> oldCentroids = centroids;
+    VectorXdList oldCentroids = centroids;
         updateCentroids(dataPoints, centroids, assignment, k);
         currentWCSS = computeWCSS(dataPoints, centroids, assignment);
         // Compute centroid shift

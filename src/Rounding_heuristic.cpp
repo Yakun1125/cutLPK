@@ -11,7 +11,7 @@ bool RoundingHeuristic::run(int maxIterations) {
         bool success;
         if (is_fair_clustering) {
             Eigen::MatrixXd topk_eigenvectors = computeTopKEigenvectors();
-            std::vector<Eigen::VectorXd> initial_centroids = generateInitialCentroids(topk_eigenvectors);
+            VectorXdList initial_centroids = generateInitialCentroids(topk_eigenvectors);
             success = runFairLloydWithGurobi(initial_centroids, maxIterations);
             // clear fairness constraints from gurobi model
             if (gurobi_model && constraints) {
@@ -32,9 +32,8 @@ bool RoundingHeuristic::run(int maxIterations) {
         }
         else {
             Eigen::MatrixXd topk_eigenvectors = computeTopKEigenvectors();
-            std::vector<Eigen::VectorXd> initial_centroids = generateInitialCentroids(topk_eigenvectors);
+            VectorXdList initial_centroids = generateInitialCentroids(topk_eigenvectors);
             if (constraints != nullptr && !constraints->empty()) {
-                std::cout<<"run constrained lloyd"<<std::endl;
                 success = runConstrainedLloyd(initial_centroids, maxIterations);
             } else {
                 success = runRegularLloyd(initial_centroids, maxIterations);
@@ -133,11 +132,11 @@ Eigen::MatrixXd RoundingHeuristic::computeTopKEigenvectors() {
     return X_k;
 }
 
-std::vector<Eigen::VectorXd> RoundingHeuristic::generateInitialCentroids(const Eigen::MatrixXd& X_k) {
+VectorXdList RoundingHeuristic::generateInitialCentroids(const Eigen::MatrixXd& X_k) {
     int N = dataPoints.size();
     int d = dataPoints[0].size(); // Data dimensionality
 
-    // Convert std::vector<Eigen::VectorXd> dataPoints to an Eigen::MatrixXd (N x d)
+    // Convert aligned dataPoints to an Eigen::MatrixXd (N x d)
     Eigen::MatrixXd D_matrix(N, d);
     for (int i = 0; i < N; ++i) {
         if (dataPoints[i].size() != d) {
@@ -148,7 +147,7 @@ std::vector<Eigen::VectorXd> RoundingHeuristic::generateInitialCentroids(const E
 
     Eigen::MatrixXd centroids_matrix = X_k * D_matrix;
 
-    std::vector<Eigen::VectorXd> transformed_data_points(N);
+    VectorXdList transformed_data_points(N);
     for (int i = 0; i < N; ++i) {
         transformed_data_points[i] = centroids_matrix.row(i);
     }
@@ -158,13 +157,13 @@ std::vector<Eigen::VectorXd> RoundingHeuristic::generateInitialCentroids(const E
     std::tie(clustering_cost, assignment) = runKMeans(transformed_data_points, k, 10000, 42);
 
     // get clustering results based on assignment
-    std::vector<Eigen::VectorXd> initial_centroids(k, Eigen::VectorXd::Zero(d));
+    VectorXdList initial_centroids(k, Eigen::VectorXd::Zero(d));
     updateCentroids(dataPoints, initial_centroids, assignment, k);
     
     return initial_centroids;
 }
 
-bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations) {  
+bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centroids, int maxIterations) {  
     if (!gurobi_model || !x_vars) {
         std::cerr << "Error: Gurobi model or variables not provided for fair clustering" << std::endl;
         return false;
@@ -172,7 +171,7 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd
     
     try {
         // Set initial centroids
-        std::vector<Eigen::VectorXd> current_centroids = initial_centroids;
+    VectorXdList current_centroids = initial_centroids;
         std::vector<int> current_assignment(dataPoints.size(), -1);
         
         int N = dataPoints.size();
@@ -202,7 +201,7 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd
             }
             
             // Store old centroids for convergence check
-            std::vector<Eigen::VectorXd> oldCentroids = current_centroids;
+            VectorXdList oldCentroids = current_centroids;
             
             // Update centroids based on current assignment
             updateCentroids(dataPoints, current_centroids, current_assignment, k);
@@ -256,9 +255,9 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const std::vector<Eigen::VectorXd
     }
 }
 
-bool RoundingHeuristic::runRegularLloyd(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations) {
+bool RoundingHeuristic::runRegularLloyd(const VectorXdList& initial_centroids, int maxIterations) {
     try {
-        std::vector<Eigen::VectorXd> current_centroids = initial_centroids;
+    VectorXdList current_centroids = initial_centroids;
         std::vector<int> current_assignment(dataPoints.size(), -1);
 
         int N = dataPoints.size();
@@ -277,7 +276,7 @@ bool RoundingHeuristic::runRegularLloyd(const std::vector<Eigen::VectorXd>& init
                 break;
             }
             
-            std::vector<Eigen::VectorXd> oldCentroids = current_centroids;
+            VectorXdList oldCentroids = current_centroids;
             
             // Update centroids
             updateCentroids(dataPoints, current_centroids, current_assignment, k);
@@ -330,7 +329,7 @@ bool RoundingHeuristic::spectralRounding(){
     Eigen::MatrixXd eigenvectors = eigensolver.eigenvectors().rightCols(k);
     Eigen::VectorXd eigenvalues = eigensolver.eigenvalues().tail(k);
     // stack them
-    std::vector<Eigen::VectorXd> stacked_eigvectors(Xsol.rows());
+    VectorXdList stacked_eigvectors(Xsol.rows());
     for (int i = 0; i < Xsol.rows(); ++i) {
         stacked_eigvectors[i] = eigenvectors.row(i).transpose();
     }
@@ -338,7 +337,7 @@ bool RoundingHeuristic::spectralRounding(){
     // Check if we have constraints to apply
     if (constraints != nullptr && !constraints->empty()) {
         // Run constrained Lloyd's algorithm on the stacked eigenvectors
-        std::cout << "Running constrained Lloyd's algorithm on stacked eigenvectors" << std::endl;
+        // std::cout << "Running constrained Lloyd's algorithm on stacked eigenvectors" << std::endl;
         
         double bestClusteringCost = kInfinity;
         std::vector<int> bestAssignment;
@@ -346,7 +345,7 @@ bool RoundingHeuristic::spectralRounding(){
         // Try multiple random initializations with constrained Lloyd
         for (int i = 0; i < 100; i++) {
             // Randomly pick initial centroids using K-means++ initialization
-            std::vector<Eigen::VectorXd> initial_centroids = initializeCentroidsPlusPlus(stacked_eigvectors, k, i + 42);
+            VectorXdList initial_centroids = initializeCentroidsPlusPlus(stacked_eigvectors, k, i + 42);
             
             // Get initial assignment based on these centroids
             std::vector<int> constrained_assignment(stacked_eigvectors.size(), -1);
@@ -355,10 +354,9 @@ bool RoundingHeuristic::spectralRounding(){
             // Now run constrained Lloyd iteratively until convergence
             bool changed = true;
             int iteration = 0;
-            const int max_iter = 1000;
             
-            while (changed && iteration < max_iter) {
-                std::vector<Eigen::VectorXd> old_centroids = initial_centroids;
+            while (changed && iteration < 100000) {
+                VectorXdList old_centroids = initial_centroids;
                 
                 // Update centroids
                 updateCentroids(stacked_eigvectors, initial_centroids, constrained_assignment, k);
@@ -407,13 +405,13 @@ bool RoundingHeuristic::spectralRounding(){
     return true;
 }
 
-bool RoundingHeuristic::runConstrainedLloyd(const std::vector<Eigen::VectorXd>& initial_centroids, int maxIterations) {
+bool RoundingHeuristic::runConstrainedLloyd(const VectorXdList& initial_centroids, int maxIterations) {
     try {
         if (constraints == nullptr) {
             throw std::runtime_error("Constraints not set for constrained Lloyd");
         }
         
-        std::vector<Eigen::VectorXd> current_centroids = initial_centroids;
+    VectorXdList current_centroids = initial_centroids;
         std::vector<int> current_assignment(dataPoints.size(), -1);
 
         int N = dataPoints.size();
@@ -432,7 +430,7 @@ bool RoundingHeuristic::runConstrainedLloyd(const std::vector<Eigen::VectorXd>& 
                 break;
             }
             
-            std::vector<Eigen::VectorXd> oldCentroids = current_centroids;
+            VectorXdList oldCentroids = current_centroids;
             
             // Update centroids
             updateCentroids(dataPoints, current_centroids, current_assignment, k);

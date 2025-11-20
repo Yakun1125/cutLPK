@@ -5,17 +5,17 @@
 
 #include "Utils_Struct.h"
 
-struct OrdinaryKMeansResult {
-    double lloyd_objective = kInfinity;
+struct SpectralKMeansResult {
+    double spectral_objective = kInfinity;
     cutLPKSolveInfo cut_info{};
     ICPStatus icp_status = ICPStatus::ERROR;
     bool bnb_executed = false;
     BnBStatus bnb_status = BnBStatus::ERROR;
-    std::vector<int> assignment;  // best integer assignment recovered from solution
+    Eigen::MatrixXd best_solution;  // best solution matrix
 };
 
-OrdinaryKMeansResult solveOrdinaryKMeans(
-    const VectorXdList& dataPoints,
+SpectralKMeansResult solveSpectralKMeans(
+    const Eigen::MatrixXd& L,
     int K,
     const parameters& params
 );

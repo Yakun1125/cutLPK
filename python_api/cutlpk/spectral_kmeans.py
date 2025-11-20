@@ -1,4 +1,4 @@
-"""High-level interface mirroring scikit-learn's estimator pattern."""
+"""High-level interface mirroring scikit-learn's estimator pattern for spectral k-means."""
 
 from __future__ import annotations
 
@@ -11,18 +11,17 @@ from . import _cutlpk
 
 
 @dataclass
-class OrdinaryKMeans:
-    """Minimal estimator-style wrapper for the cutLPK ordinary k-means solver.
+class SpectralKMeans:
+    """Minimal estimator-style wrapper for the cutLPK spectral k-means solver.
 
     Parameters mirror the command-line options but keep sensible defaults. Additional
-    keyword arguments accepted by :func:`_cutlpk.run_ordinary_kmeans` can be supplied
+    keyword arguments accepted by :func:`_cutlpk.run_spectral_kmeans` can be supplied
     at construction or during :meth:`fit`.
     """
 
     n_clusters: int
     warm_start: bool = True
     random_state: int = 42
-    lloyd_random_starts: int = 100
     solver: str = "cupdlpx"
     bnb_node_limit: int = 0
     extra_params: Dict[str, Any] = field(default_factory=dict)
@@ -43,24 +42,25 @@ class OrdinaryKMeans:
         params: Dict[str, Any] = {
             "warm_start": self.warm_start,
             "random_seed": self.random_state,
-            "lloyd_random_starts": self.lloyd_random_starts,
             "solver": self.solver,
             "bnb_node_limit": self.bnb_node_limit,
         }
         params.update(self.extra_params)
         return params
 
-    def fit(self, X: Any, **override_params: Any) -> "OrdinaryKMeans":
-        """Run the solver on ``X`` and store the resulting metrics."""
+    def fit(self, X: Any, **override_params: Any) -> "SpectralKMeans":
+        """Run the solver on the Laplacian matrix ``X`` and store the resulting metrics."""
 
-        data = np.asarray(X, dtype=np.float64)
-        if data.ndim != 2:
-            raise ValueError("Input data must be a 2D array-like structure")
+        laplacian = np.asarray(X, dtype=np.float64)
+        if laplacian.ndim != 2:
+            raise ValueError("Laplacian must be a 2D array")
+        if laplacian.shape[0] != laplacian.shape[1]:
+            raise ValueError("Laplacian must be square")
 
         params = self._collect_params()
         params.update(override_params)
 
-        result = _cutlpk.run_ordinary_kmeans(data, int(self.n_clusters), **params)
+        result = _cutlpk.run_spectral_kmeans(laplacian, int(self.n_clusters), **params)
 
         self.cost_ = float(result["cost"])
         self.relative_gap_ = float(result["relative_gap"])
@@ -83,14 +83,13 @@ class OrdinaryKMeans:
             "n_clusters": self.n_clusters,
             "warm_start": self.warm_start,
             "random_state": self.random_state,
-            "lloyd_random_starts": self.lloyd_random_starts,
             "solver": self.solver,
             "bnb_node_limit": self.bnb_node_limit,
         }
         params.update(self.extra_params)
         return params
 
-    def set_params(self, **params: Any) -> "OrdinaryKMeans":
+    def set_params(self, **params: Any) -> "SpectralKMeans":
         for key, value in params.items():
             if key == "n_clusters":
                 self.n_clusters = int(value)
@@ -98,8 +97,6 @@ class OrdinaryKMeans:
                 self.warm_start = bool(value)
             elif key == "random_state":
                 self.random_state = int(value)
-            elif key == "lloyd_random_starts":
-                self.lloyd_random_starts = int(value)
             elif key == "solver":
                 self.solver = str(value)
             elif key == "bnb_node_limit":
@@ -109,11 +106,13 @@ class OrdinaryKMeans:
         return self
 
 
-def solve_kmeans(X: Any, n_clusters: int, **params: Any) -> Dict[str, Any]:
+def solve_spectral_kmeans(laplacian: Any, n_clusters: int, **params: Any) -> Dict[str, Any]:
     """Functional-style helper returning the solver dictionary result."""
 
-    data = np.asarray(X, dtype=np.float64)
-    if data.ndim != 2:
-        raise ValueError("Input data must be a 2D array-like structure")
+    L = np.asarray(laplacian, dtype=np.float64)
+    if L.ndim != 2:
+        raise ValueError("Laplacian must be a 2D array")
+    if L.shape[0] != L.shape[1]:
+        raise ValueError("Laplacian must be square")
 
-    return _cutlpk.run_ordinary_kmeans(data, int(n_clusters), **params)
+    return _cutlpk.run_spectral_kmeans(L, int(n_clusters), **params)

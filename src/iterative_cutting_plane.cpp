@@ -161,7 +161,6 @@ ICPStatus iterative_cutting_plane_solver(
         last_dual_sol = *dual_init;
     }
     
-    //CupdlpSolver solver;
     auto cutLPK_start = std::chrono::high_resolution_clock::now();
     Eigen::MatrixXd Xsol; Xsol.resize(N, N);
 
@@ -196,7 +195,7 @@ ICPStatus iterative_cutting_plane_solver(
             }
 
             // Call solver with warm start
-            solver_cupdlpx(
+            solver_retcode = solver_cupdlpx(
                 current_dual_obj, current_primal_obj, Xsol, cutting_planes, lp, solver_tolerance, solver_time_limit,
                 (params.solver_warm_start && !last_primal_sol.empty() ? &last_primal_sol : nullptr),
                 (params.solver_warm_start && !last_dual_sol.empty() ? &dual_init : nullptr),

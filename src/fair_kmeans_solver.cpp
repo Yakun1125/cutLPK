@@ -1,6 +1,7 @@
 #include "fair_kmeans_solver.h"
 
 #include <iostream>
+#include <iomanip>
 #include <stdexcept>
 #include <fstream>
 #include <tuple>
@@ -14,7 +15,7 @@
 #include "fair_Lloyd.h"
 
 FairKMeansResult solveFairKMeans(
-    const std::vector<Eigen::VectorXd>& dataPoints,
+    const VectorXdList& dataPoints,
     int K,
     const std::vector<std::vector<bool>>& dataGroups,
     const std::vector<int>& groupRatio,
@@ -71,7 +72,8 @@ FairKMeansResult solveFairKMeans(
     std::vector<double> fairness_param_adjusted;
 
     if (params.fair_clustering_fairness_type == "alpha") {
-        fairness_param_adjusted = alpha_fairParam_adjustment(groupRatio, params.fair_clustering_fairness_param, N, K);
+        //fairness_param_adjusted = alpha_fairParam_adjustment(groupRatio, params.fair_clustering_fairness_param, N, K);
+        fairness_param_adjusted = std::vector<double>(numGroups, params.fair_clustering_fairness_param);
         auto result = GRB_buildFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
         model = std::move(result.first);
         x_vars = std::move(result.second);
@@ -143,9 +145,20 @@ FairKMeansResult solveFairKMeans(
     result.cut_info = cutLPK_info;
     result.icp_status = retcode;
 
+    // Print cutLPK information right after cutting plane finishes
+    if (params.cutting_plane_verbose > 0) {
+        std::cout << "\n=== Cutting Plane Algorithm Complete ===" << std::endl;
+        std::cout << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+        std::cout << "Fair Lloyd objective: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+        std::cout << "Final lower bound: " << std::fixed << std::setprecision(8) << result.cut_info.lower_bound << std::endl;
+        std::cout << "Final upper bound: " << std::fixed << std::setprecision(8) << result.cut_info.upper_bound << std::endl;
+        std::cout << "Final Optimality Gap: " << std::fixed << std::setprecision(8) << result.cut_info.optimality_gap << std::endl;
+    }
+
     if (params.bnb_node_limit > 0) {
-        if (params.bnb_output_level > 0) {
-            std::cout << "Starting Branch-and-Bound with node limit: " << params.bnb_node_limit << std::endl;
+        if (params.bnb_verbose > 0) {
+            std::cout << "\n=== Starting Branch-and-Bound ===" << std::endl;
+            std::cout << "Node limit: " << params.bnb_node_limit << std::endl;
         }
         BnBStatus bnb_status = branch_and_bound_solver(
             N,
@@ -159,17 +172,32 @@ FairKMeansResult solveFairKMeans(
         result.bnb_executed = true;
         result.bnb_status = bnb_status;
 
-        if (params.bnb_output_level > 0) {
+        if (params.bnb_verbose > 0) {
+            std::cout << "\n=== Branch-and-Bound Complete ===" << std::endl;
             if (bnb_status == BnBStatus::OPTIMAL) {
                 std::cout << "Branch-and-Bound found the optimal solution." << std::endl;
             } else {
-                std::cout << "Branch-and-Bound did not find the optimal solution." << std::endl;
+                std::cout << "Branch-and-Bound finished with status: " << static_cast<int>(bnb_status) << std::endl;
             }
+
         }
     }
 
     if (result.cut_info.best_upper_bound_solution.size() > 0) {
         result.assignment = createAssignment(result.cut_info.best_upper_bound_solution, K);
+    }
+
+    // Write to output file if specified
+    if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+        std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+        if (file.is_open()) {
+            file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+            file << "Fair Lloyd objective: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+            file << "Final lower bound: " << std::fixed << std::setprecision(8) << result.cut_info.lower_bound << std::endl;
+            file << "Final upper bound: " << std::fixed << std::setprecision(8) << result.cut_info.upper_bound << std::endl;
+            file << "Final optimality gap: " << std::fixed << std::setprecision(8) << result.cut_info.optimality_gap << std::endl;
+            file.close();
+        }
     }
 
     return result;

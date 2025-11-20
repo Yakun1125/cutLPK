@@ -1,6 +1,7 @@
 #include "ordinary_kmeans_solver.h"
 
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -12,7 +13,7 @@
 #include "Lloyd.h"
 
 OrdinaryKMeansResult solveOrdinaryKMeans(
-    const std::vector<Eigen::VectorXd>& dataPoints,
+    const VectorXdList& dataPoints,
     int K,
     const parameters& params
 ) {
@@ -96,8 +97,17 @@ OrdinaryKMeansResult solveOrdinaryKMeans(
     result.cut_info = cutLPK_info;
     result.icp_status = retcode;
 
+    if (params.cutting_plane_verbose > 0) {
+        std::cout << "\n=== Cutting Plane Algorithm Complete ===" << std::endl;
+        std::cout << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+        std::cout << "Lloyd objective: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+        std::cout << "Final lower bound: " << std::fixed << std::setprecision(8) << result.cut_info.lower_bound << std::endl;
+        std::cout << "Final upper bound: " << std::fixed << std::setprecision(8) << result.cut_info.upper_bound << std::endl;
+        std::cout << "Final Optimality Gap: " << std::fixed << std::setprecision(8) << result.cut_info.optimality_gap << std::endl;
+    }
+
     if (params.bnb_node_limit > 0) {
-        if (params.bnb_output_level > 0) {
+        if (params.bnb_verbose > 0) {
             std::cout << "Starting Branch-and-Bound with node limit: " << params.bnb_node_limit << std::endl;
         }
         BnBStatus bnb_status = branch_and_bound_solver(
@@ -112,7 +122,7 @@ OrdinaryKMeansResult solveOrdinaryKMeans(
         result.bnb_executed = true;
         result.bnb_status = bnb_status;
 
-        if (params.bnb_output_level > 0) {
+        if (params.bnb_verbose > 0) {
             if (bnb_status == BnBStatus::OPTIMAL) {
                 std::cout << "Branch-and-Bound found the optimal solution." << std::endl;
             } else {
@@ -123,6 +133,19 @@ OrdinaryKMeansResult solveOrdinaryKMeans(
 
     if (result.cut_info.best_upper_bound_solution.size() > 0) {
         result.assignment = createAssignment(result.cut_info.best_upper_bound_solution, K);
+    }
+
+    // Write to output file if specified
+    if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+        std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+        if (file.is_open()) {
+            file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+            file << "Lloyd objective: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+            file << "Final lower bound: " << std::fixed << std::setprecision(8) << result.cut_info.lower_bound << std::endl;
+            file << "Final upper bound: " << std::fixed << std::setprecision(8) << result.cut_info.upper_bound << std::endl;
+            file << "Final optimality gap: " << std::fixed << std::setprecision(8) << result.cut_info.optimality_gap << std::endl;
+            file.close();
+        }
     }
 
     return result;

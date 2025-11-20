@@ -1,9 +1,9 @@
-"""High-level interface mirroring scikit-learn's estimator pattern."""
+"""High-level interface mirroring scikit-learn's estimator pattern for fair k-means."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -11,15 +11,18 @@ from . import _cutlpk
 
 
 @dataclass
-class OrdinaryKMeans:
-    """Minimal estimator-style wrapper for the cutLPK ordinary k-means solver.
+class FairKMeans:
+    """Minimal estimator-style wrapper for the cutLPK fair k-means solver.
 
     Parameters mirror the command-line options but keep sensible defaults. Additional
-    keyword arguments accepted by :func:`_cutlpk.run_ordinary_kmeans` can be supplied
+    keyword arguments accepted by :func:`_cutlpk.run_fair_kmeans` can be supplied
     at construction or during :meth:`fit`.
     """
 
     n_clusters: int
+    groups: Any  # Can be list of labels or boolean matrix
+    fairness_type: str = "tau"  # "tau" or "alpha"
+    fairness_param: float = 0.1  # between 0 and 1.0
     warm_start: bool = True
     random_state: int = 42
     lloyd_random_starts: int = 100
@@ -46,11 +49,13 @@ class OrdinaryKMeans:
             "lloyd_random_starts": self.lloyd_random_starts,
             "solver": self.solver,
             "bnb_node_limit": self.bnb_node_limit,
+            "fair_clustering_fairness_type": self.fairness_type,
+            "fair_clustering_fairness_param": self.fairness_param,
         }
         params.update(self.extra_params)
         return params
 
-    def fit(self, X: Any, **override_params: Any) -> "OrdinaryKMeans":
+    def fit(self, X: Any, **override_params: Any) -> "FairKMeans":
         """Run the solver on ``X`` and store the resulting metrics."""
 
         data = np.asarray(X, dtype=np.float64)
@@ -60,7 +65,7 @@ class OrdinaryKMeans:
         params = self._collect_params()
         params.update(override_params)
 
-        result = _cutlpk.run_ordinary_kmeans(data, int(self.n_clusters), **params)
+        result = _cutlpk.run_fair_kmeans(data, int(self.n_clusters), self.groups, **params)
 
         self.cost_ = float(result["cost"])
         self.relative_gap_ = float(result["relative_gap"])
@@ -81,6 +86,9 @@ class OrdinaryKMeans:
     def get_params(self, deep: bool = False) -> Dict[str, Any]:
         params = {
             "n_clusters": self.n_clusters,
+            "groups": self.groups,
+            "fairness_type": self.fairness_type,
+            "fairness_param": self.fairness_param,
             "warm_start": self.warm_start,
             "random_state": self.random_state,
             "lloyd_random_starts": self.lloyd_random_starts,
@@ -90,10 +98,20 @@ class OrdinaryKMeans:
         params.update(self.extra_params)
         return params
 
-    def set_params(self, **params: Any) -> "OrdinaryKMeans":
+    def set_params(self, **params: Any) -> "FairKMeans":
         for key, value in params.items():
             if key == "n_clusters":
                 self.n_clusters = int(value)
+            elif key == "groups":
+                self.groups = value
+            elif key == "fairness_type":
+                if value not in ["tau", "alpha"]:
+                    raise ValueError("fairness_type must be 'tau' or 'alpha'")
+                self.fairness_type = str(value)
+            elif key == "fairness_param":
+                if not (0.0 <= value <= 1.0):
+                    raise ValueError("fairness_param must be between 0.0 and 1.0")
+                self.fairness_param = float(value)
             elif key == "warm_start":
                 self.warm_start = bool(value)
             elif key == "random_state":
@@ -109,11 +127,20 @@ class OrdinaryKMeans:
         return self
 
 
-def solve_kmeans(X: Any, n_clusters: int, **params: Any) -> Dict[str, Any]:
+def solve_fair_kmeans(X: Any, n_clusters: int, groups: Any, 
+                     fairness_type: str = "tau", fairness_param: float = 0.1, **params: Any) -> Dict[str, Any]:
     """Functional-style helper returning the solver dictionary result."""
 
     data = np.asarray(X, dtype=np.float64)
     if data.ndim != 2:
         raise ValueError("Input data must be a 2D array-like structure")
+    
+    if fairness_type not in ["tau", "alpha"]:
+        raise ValueError("fairness_type must be 'tau' or 'alpha'")
+    if not (0.0 <= fairness_param <= 1.0):
+        raise ValueError("fairness_param must be between 0.0 and 1.0")
 
-    return _cutlpk.run_ordinary_kmeans(data, int(n_clusters), **params)
+    params["fair_clustering_fairness_type"] = fairness_type
+    params["fair_clustering_fairness_param"] = fairness_param
+
+    return _cutlpk.run_fair_kmeans(data, int(n_clusters), groups, **params)

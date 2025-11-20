@@ -3,8 +3,9 @@
 #include <queue>
 #include <algorithm>
 
-std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen::VectorXd>& dataPoints, int k, int random_seed) {
-	std::vector<Eigen::VectorXd> centroids;
+VectorXdList initializeCentroidsPlusPlus(const VectorXdList& dataPoints, int k, int random_seed) {
+	VectorXdList centroids;
+	// print validate size of datapoints
 	std::uniform_int_distribution<> dis(0, dataPoints.size() - 1);
     std::mt19937 gen(random_seed);
 	centroids.push_back(dataPoints[dis(gen)]);
@@ -12,8 +13,8 @@ std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen
 	for (int i = 1; i < k; ++i) {
 		std::vector<double> distances(dataPoints.size(), std::numeric_limits<double>::max());
 
-		for (size_t j = 0; j < dataPoints.size(); ++j) {
-			for (size_t c = 0; c < centroids.size(); ++c) {
+		for (int j = 0; j < dataPoints.size(); ++j) {
+			for (int c = 0; c < centroids.size(); ++c) {
 				double dist = (dataPoints[j] - centroids[c]).squaredNorm();
 				distances[j] = std::min(distances[j], dist);
 			}
@@ -26,7 +27,7 @@ std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen
 	return centroids;
 }
 
-bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment) {
+bool assignClusters(const VectorXdList& dataPoints, VectorXdList& centroids, std::vector<int>& assignment) {
 	bool changed = false;
 	for (size_t i = 0; i < dataPoints.size(); ++i) {
 		double minDist = std::numeric_limits<double>::max();
@@ -46,7 +47,7 @@ bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<
 	return changed;
 }
 
-bool ConstrainedAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints) {
+bool ConstrainedAssignClusters(const VectorXdList& dataPoints, VectorXdList& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints) {
 	bool changed = false;
 	int n = dataPoints.size();
 	int k = centroids.size();
@@ -181,9 +182,9 @@ bool ConstrainedAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, s
 	return changed;
 }
 
-void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment, int k) {
+void updateCentroids(const VectorXdList& dataPoints, VectorXdList& centroids, const std::vector<int>& assignment, int k) {
 	std::vector<int> clusterSizes(k, 0);
-	std::vector<Eigen::VectorXd> newCentroids(k, Eigen::VectorXd::Zero(centroids[0].size()));
+	VectorXdList newCentroids(k, Eigen::VectorXd::Zero(centroids[0].size()));
 
 	for (size_t i = 0; i < dataPoints.size(); ++i) {
 		if (assignment[i] >= 0 && assignment[i] < k) {
@@ -201,7 +202,7 @@ void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector
 	}
 }
 
-double computeWCSS(const std::vector<Eigen::VectorXd>& dataPoints, const std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment) {
+double computeWCSS(const VectorXdList& dataPoints, const VectorXdList& centroids, const std::vector<int>& assignment) {
 	double totalWCSS = 0.0;
 	for (size_t i = 0; i < dataPoints.size(); ++i) {
 		if (assignment[i] >= 0 && assignment[i] < (int)centroids.size()) {
@@ -261,17 +262,17 @@ std::vector<int> createAssignment(const Eigen::MatrixXd& Xsol, int k){
     return assignment;
 }
 
-double KMeansObjPartitionMatrix(const Eigen::MatrixXd& Xsol, const std::vector<Eigen::VectorXd>& dataPoints, int k){
+double KMeansObjPartitionMatrix(const Eigen::MatrixXd& Xsol, const VectorXdList& dataPoints, int k){
     std::vector<int> assignment = createAssignment(Xsol, k);
 
     return KMeansObjAssignment(assignment, dataPoints, k);
 }
 
-double KMeansObjAssignment(const std::vector<int>& assignment, const std::vector<Eigen::VectorXd>& dataPoints, int k){
+double KMeansObjAssignment(const std::vector<int>& assignment, const VectorXdList& dataPoints, int k){
     int n = dataPoints.size();
     int dim = dataPoints[0].size();
     
-    std::vector<Eigen::VectorXd> centroids(k, Eigen::VectorXd::Zero(dim));
+	VectorXdList centroids(k, Eigen::VectorXd::Zero(dim));
     std::vector<int> counts(k, 0);
     
     for (size_t i = 0; i < n; ++i) {
@@ -296,20 +297,20 @@ double KMeansObjAssignment(const std::vector<int>& assignment, const std::vector
     return objective;
 }
 
-std::pair<double, std::vector<int>> runKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations, int random_seed){
+std::pair<double, std::vector<int>> runKMeans(const VectorXdList& dataPoints, int k, int maxIterations, int random_seed){
     int n = dataPoints.size();
 
     // initialized centroids and do assignment
-    std::vector<Eigen::VectorXd> centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
+	VectorXdList centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
     std::vector<int> assignment(n, -1);
     bool changed = assignClusters(dataPoints, centroids, assignment);
     double currentWCSS = computeWCSS(dataPoints, centroids, assignment);
 
-    for (int iter = 0; iter < maxIterations; ++iter) {   
+    for (int iter = 0; iter < maxIterations; ++iter) {
         if (!changed) {
             break;
         }
-        std::vector<Eigen::VectorXd> oldCentroids = centroids;
+		VectorXdList oldCentroids = centroids;
         updateCentroids(dataPoints, centroids, assignment, k);
         currentWCSS = computeWCSS(dataPoints, centroids, assignment);
         // Compute centroid shift

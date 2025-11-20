@@ -7,21 +7,21 @@
 #include "Utils_Struct.h"
 
 // Randomly Initialize centroids using kmeans++
-std::vector<Eigen::VectorXd> initializeCentroidsPlusPlus(const std::vector<Eigen::VectorXd>& dataPoints, int k, int random_seed);
+VectorXdList initializeCentroidsPlusPlus(const VectorXdList& dataPoints, int k, int random_seed);
 // Assign datapoints to closest center and check if assignment changes. If so, return true.
-bool assignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment);
+bool assignClusters(const VectorXdList& dataPoints, VectorXdList& centroids, std::vector<int>& assignment);
 // Constrained version that respects must-link and cannot-link constraints
-bool ConstrainedAssignClusters(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints);
+bool ConstrainedAssignClusters(const VectorXdList& dataPoints, VectorXdList& centroids, std::vector<int>& assignment, const std::vector<BranchConstraint>& constraints);
 // Update centroids if assignment changes.
-void updateCentroids(const std::vector<Eigen::VectorXd>& dataPoints, std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment, int k);
+void updateCentroids(const VectorXdList& dataPoints, VectorXdList& centroids, const std::vector<int>& assignment, int k);
 // Compute within cluster distance
-double computeWCSS(const std::vector<Eigen::VectorXd>& dataPoints, const std::vector<Eigen::VectorXd>& centroids, const std::vector<int>& assignment);
+double computeWCSS(const VectorXdList& dataPoints, const VectorXdList& centroids, const std::vector<int>& assignment);
 // Main function for running Kmeans
-std::pair<double, std::vector<int>> runKMeans(const std::vector<Eigen::VectorXd>& dataPoints, int k, int maxIterations, int random_seed);
+std::pair<double, std::vector<int>> runKMeans(const VectorXdList& dataPoints, int k, int maxIterations, int random_seed);
 // Compute obj of partition matrix 
-double KMeansObjPartitionMatrix(const Eigen::MatrixXd& Xsol, const std::vector<Eigen::VectorXd>& dataPoints, int k);
+double KMeansObjPartitionMatrix(const Eigen::MatrixXd& Xsol, const VectorXdList& dataPoints, int k);
 // Compute obj using assignment
-double KMeansObjAssignment(const std::vector<int>& assignment, const std::vector<Eigen::VectorXd>& dataPoints, int k);
+double KMeansObjAssignment(const std::vector<int>& assignment, const VectorXdList& dataPoints, int k);
 // Convert assignment to partition matrix
 Eigen::MatrixXd createPartitionMatrix(const std::vector<int>& assignment, int k);
 // Convert partition matrix to assignment

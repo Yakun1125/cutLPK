@@ -11,9 +11,11 @@
 #include "branch_and_bound.h"
 #include "ordinary_kmeans_solver.h"
 #include "fair_kmeans_solver.h"
+#include "spectral_kmeans_solver.h"
 #include <limits>
 #include <chrono>
 #include <unordered_map>
+#include "Utils_Struct.h"
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
@@ -112,7 +114,7 @@ int main(int argc, char* argv[]) {
         if (!file.is_open()) {
             throw std::runtime_error("Unable to open file: " + std::string(dataFile));
         }
-        std::vector<Eigen::VectorXd> dataPoints;
+    VectorXdList dataPoints;
         std::string line;
         while (std::getline(file, line)) {
             std::stringstream lineStream(line);
@@ -203,23 +205,6 @@ int main(int argc, char* argv[]) {
       
         // print out some final information
         // print Lloyd objective
-        if (!params.cutting_plane_output_file.empty())
-        {
-            std::ofstream file(params.cutting_plane_output_file, std::ios::app);
-            if (file.is_open())
-            {
-                file << "cutLPK return code: " << cutLPK_info.retcode << std::endl;
-                file << "Lloyd objective: " << initialLloydObj << std::endl;
-                file << "Final lower bound: " << std::fixed << std::setprecision(8) <<cutLPK_info.lower_bound << std::endl;
-                file << "Final upper bound: " << std::fixed << std::setprecision(8) <<cutLPK_info.upper_bound << std::endl;
-                file << "Final optimality gap: " << std::fixed << std::setprecision(8) <<cutLPK_info.optimality_gap << std::endl;
-            }
-        }
-        std::cout << "cutLPK return code: " << cutLPK_info.retcode << std::endl;
-        std::cout << "Lloyd objective: " << initialLloydObj << std::endl;
-        std::cout << "Final lower bound: " << cutLPK_info.lower_bound << std::endl;
-        std::cout << "Final upper bound: " << cutLPK_info.upper_bound << std::endl;
-        std::cout << "Final Optimality Gap: " << cutLPK_info.optimality_gap << std::endl;
         // time information
         // std::cout << "Total solver time: " << cutLPK_info.total_solver_time << " seconds" << std::endl;
         // std::cout << "Total post-heuristic time: " << cutLPK_info.total_post_heuristic_time << " seconds" << std::endl;
@@ -291,7 +276,6 @@ int main(int argc, char* argv[]) {
         }
 
         // Determine matrix dimensions and create the Eigen Matrix 'L'.
-        // N is set to the number of rows.
         int N = matrix_rows.size();
         int cols = matrix_rows[0].size();
         Eigen::MatrixXd L(N, N);
@@ -304,64 +288,16 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        LPK spectral_lpk;
-        constructSpectralLPK(spectral_lpk, L, N, K);
-        Eigen::MatrixXd Xsol; Xsol.resize(N, N);
-        Eigen::MatrixXd Spectral_Xsol; Spectral_Xsol.resize(N, N);
-        std::vector<validInequality> cutting_planes;
+        // Solve spectral clustering using the wrapper
+        SpectralKMeansResult result = solveSpectralKMeans(L, K, params);
         
-        int spectralHeuristicRetcode = spectralHeuristic(L, K, Spectral_Xsol);
-        double spectralObjective = L.cwiseProduct(Spectral_Xsol).sum();
-        std::cout << "Spectral heuristic completed with objective: " << spectralObjective << std::endl;
-        addInitialCuts(params, N, Spectral_Xsol, spectral_lpk, cutting_planes);
-        spectral_lpk.setupLPK();
-
-        RoundingHeuristic roundingHeuristic(L, K, Xsol);
-        cutLPKSolveInfo cutLPK_info;
-        cutLPK_info.upper_bound = spectralObjective;
-        // set default output_file as data file name with "_output.txt" suffix
-
-    ICPStatus retcode = iterative_cutting_plane_solver(
-        N,
-        K, 
-        cutLPK_info, 
-        cutting_planes, 
-        spectral_lpk, 
-        roundingHeuristic,
-        params
-        );
-    if (retcode == ICPStatus::ERROR) {
-        std::cerr << "Error in iterative cutting plane solver: " << static_cast<int>(retcode) << std::endl;
-        return static_cast<int>(retcode);
-    }
-
-    // print out some final information
-    // print Lloyd objective
-        if (!params.cutting_plane_output_file.empty())
-        {
-            std::ofstream file(params.cutting_plane_output_file, std::ios::app);
-            if (file.is_open())
-            {
-                file << "cutLPK return code: " << cutLPK_info.retcode << std::endl;
-                file << "Lloyd objective: " << spectralObjective << std::endl;
-                file << "Final lower bound: " << std::fixed << std::setprecision(8) <<cutLPK_info.lower_bound << std::endl;
-                file << "Final upper bound: " << std::fixed << std::setprecision(8) <<cutLPK_info.upper_bound << std::endl;
-                file << "Final optimality gap: " << std::fixed << std::setprecision(8) <<cutLPK_info.optimality_gap << std::endl;
-            }
+        if (result.icp_status == ICPStatus::ERROR) {
+            return static_cast<int>(result.icp_status);
         }
-        std::cout << "cutLPK return code: " << cutLPK_info.retcode << std::endl;
-        std::cout << "Lloyd objective: " << spectralObjective << std::endl;
-        std::cout << "Final lower bound: " << cutLPK_info.lower_bound << std::endl;
-        std::cout << "Final upper bound: " << cutLPK_info.upper_bound << std::endl;
-        std::cout << "Final Optimality Gap: " << cutLPK_info.optimality_gap << std::endl;
-        // time information
-        // std::cout << "Total solver time: " << cutLPK_info.total_solver_time << " seconds" << std::endl;
-        // std::cout << "Total post-heuristic time: " << cutLPK_info.total_post_heuristic_time << " seconds" << std::endl;
-        // std::cout << "Total separation time: " << cutLPK_info.total_separation_time << " seconds" << std::endl;
 
-        // save the final solution matrix
-        // by default using name of output_file with "_output" replaced by final_lp_Xsol; best_upper_bound_solution;
+        // Print out final information
 
+        // Save the final solution matrix
         std::string outputFileName = params.cutting_plane_output_file;
         std::string final_lp_Xsol = "_final_lp_Xsol";
         std::string best_upper_bound_solution = "_best_upper_bound_solution";
@@ -376,20 +312,21 @@ int main(int argc, char* argv[]) {
         std::ofstream outputFile(outputFileName);
         if (outputFile.is_open()) {
             outputFile << "Final solution matrix:\n";
-            outputFile << cutLPK_info.final_lp_Xsol << std::endl;
+            outputFile << result.cut_info.final_lp_Xsol << std::endl;
             outputFile.close();
         }
 
         // Replace "_output" with best_upper_bound_solution
         pos = outputFileName.find(final_lp_Xsol);
         if (pos != std::string::npos) {
-            outputFileName.replace(pos, 7, best_upper_bound_solution);
+            outputFileName.replace(pos, final_lp_Xsol.length(), best_upper_bound_solution);
         }
+        
         // Save the best upper bound solution matrix
         std::ofstream bestUpperBoundFile(outputFileName);
         if (bestUpperBoundFile.is_open()) {
             bestUpperBoundFile << "Best upper bound solution matrix:\n";
-            bestUpperBoundFile << cutLPK_info.best_upper_bound_solution << std::endl;
+            bestUpperBoundFile << result.best_solution << std::endl;
             bestUpperBoundFile.close();
         }   
     } 

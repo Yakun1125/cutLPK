@@ -4,12 +4,21 @@ project(cutlpk_python LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -march=native")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CUTLPK_BUILD_EXECUTABLE OFF CACHE BOOL "Build the CLI executable" FORCE)
 
 set(CUTLPK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 add_subdirectory(${CUTLPK_SOURCE_DIR} cutlpk_core_build)
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if(ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    message(STATUS "For faster LTO builds, set LTO_NTHREADS to the number of CPU cores, e.g.: export LTO_NTHREADS=$(nproc)")
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
