@@ -3,6 +3,12 @@
 </p>
 A scalable linear programming framework for solving K-Means, Fair K-Means, and Spectral Clustering problems. This project implements a cutting-plane algorithm that utilizing and LP relaxation to solving clustering problems globally, as detailed in [arXiv preprint coming soon].
 
+## Precompiled Binaries
+
+A precompiled cutLPK binary is available for download (tested on Colab only): [cutLPK](https://drive.google.com/file/d/1975-suDKaF1YeWBz9FxslDpohVH5pT_k/view?usp=drive_link).
+
+After downloading, make the binary executable and run it as shown in the examples below.
+
 ## Dependencies
 
 This project relies on the following libraries. Versions used for testing are listed for reproducibility.
@@ -37,6 +43,11 @@ The project uses CMake for configuration and building. Below are the steps to bu
    ```bash
    cmake --build
    ```
+
+## Datasets
+
+- [Social Network datasets](https://drive.google.com/drive/folders/1hL84yrvbdIG-x0TNee8c6dXZ-ZhnCfxy?usp=drive_link)
+- [Fair Clustering datasets](https://drive.google.com/drive/folders/1rd5PWDNXlU6rFomKLt509iYVsjLc6FCQ?usp=drive_link)
 
 ## Example Usage
 
