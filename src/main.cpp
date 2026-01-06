@@ -2,16 +2,13 @@
 #include <fstream>
 #include <vector>
 #include <Eigen/Dense>
-#include "Solver_cupdlp.h"
 #include "construct_LPK.h"
 #include "separation.h"
 #include "Rounding_heuristic.h"
 #include "spectral_heuristic.h"
 #include "iterative_cutting_plane.h"
 #include "branch_and_bound.h"
-#include "ordinary_kmeans_solver.h"
-#include "fair_kmeans_solver.h"
-#include "spectral_kmeans_solver.h"
+#include "cutLPK.h"
 #include <limits>
 #include <chrono>
 #include <unordered_map>

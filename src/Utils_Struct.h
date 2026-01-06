@@ -186,7 +186,7 @@ struct parameters {
 		cutting_plane_opt_gap(1e-4),
 		cutting_plane_max_separation_time(300.0),
 
-		bnb_node_limit(10),
+		bnb_node_limit(0), // by default, no branch and bound will be executed
 		bnb_time_limit(3600.0),
 		bnb_gap_tol(1e-4),
 		bnb_global_ub(kInfinity),

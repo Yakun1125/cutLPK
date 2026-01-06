@@ -1,6 +1,5 @@
 #include "iterative_cutting_plane.h"
-#include "Solver_cupdlp.h"
-// #include "Solver_gurobi.h"
+#include "LP_solvers.h"
 
 #include "separation.h"
 #include <iomanip>

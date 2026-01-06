@@ -1,5 +1,5 @@
 #include "branch_and_bound.h"
-#include "Solver_cupdlp.h"
+#include "LP_solvers.h"
 #include <iostream>
 #include <iomanip>
 #include <chrono>

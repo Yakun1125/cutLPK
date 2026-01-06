@@ -3,7 +3,7 @@
 #include <iostream>
 
 void setupGurobiWLS(GRBEnv& env) {
-    const std::string filename = "gurobiWLS.txt";
+    const std::string filename = "gurobi.lic";
     std::ifstream wls_file(filename);
 
     if (wls_file.is_open()) {

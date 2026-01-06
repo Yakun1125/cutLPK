@@ -40,8 +40,6 @@ The project uses CMake for configuration and building. Below are the steps to bu
 
 ## Example Usage
 
-All commands should be run from the `build` directory.
-
 * **Ordinary K-Means Clustering**: Provide the data file and specify the number of clusters:
 
   ```bash
@@ -51,30 +49,43 @@ All commands should be run from the `build` directory.
 * **Fair K-Means Clustering**: Specify the type of fairness, the fairness parameter, and the group label file:
 
   ```bash
-  ./cutLPK iris.csv 3 fairness_type=alpha fairness_param=0.8 group_file=groupinfo.csv
+  ./cutLPK HC_data.csv 3 fairness_type=alpha fairness_param=0.8 group_file=HC_labels.csv
   ```
 
 * **Spectral Clustering**: Provide a graph Laplacian file and indicate that the problem is spectral clustering:
 
   ```bash
-  ./cutLPK graph_laplacian.csv 3 is_spectral_clustering=true
+  ./cutLPK football_L.csv 3 is_spectral_clustering=true
   ```
 
-## Key Parameters
+## Command-Line Parameters
 
-The following key parameters can be configured using the format `param_name=param_value`:
+All solver options are passed as `key=value` pairs after `data_file` and `K`.
 
-| Parameter | Default Value | Description |
-|-----------|---------------|-------------|
-| solver | "cupdlp" | The LP solver to use ("cupdlp" or "gurobi") |
-| random_seed | 42 | Seed for random number generation |
-| max_cuts_init | 1.5e7 | Maximum number of initial cuts |
-| max_cuts_added_iter | 3e7 | Maximum number of violated cuts per iteration |
-| time_limit_lp | 180 | Time limit for LP in each cutting plane iteration (seconds) |
-| time_limit_all | 7200 | Overall time limit (seconds) |
-| cuts_vio_tol | 1e-4 | Cut violation tolerance |
-| bnb_node_limit | - | Maximum number of nodes to explore in Branch and Bound |
-| bnb_time_limit | - | Time limit for Branch and Bound (seconds) |
-| bnb_gap_tol | 1e-4 | Gap tolerance for Branch and Bound convergence |
-| bnb_verbose | 0 | Branch and Bound verbosity level |
-| bnb_output_level | 1 | Detail level of Branch and Bound output |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `solver` | string | `"cupdlpx"` | LP solver. |
+| `random_seed` | int | `42` | Seed for randomized components. |
+| `fairness_type` | string | empty | Fairness type (`alpha` or `tau`). |
+| `fairness_param` | double | `1.0` | Fair clustering strength parameter. |
+| `group_file` | string | empty | File with group labels for fair k-means (`fair_clustering_group_file`). |
+| `is_spectral_clustering` | bool | `false` | Treat input as Laplacian and run spectral mode (`is_spectral_clustering`). |
+| `max_cuts_init` | int | `1.5e7` | Max number of cuts in the first LP. |
+| `max_cuts_added_iter` | int | `1e7` | Max cuts added per iteration. |
+| `max_separation_size` | int | `1.5e7` | Max separation problem size. |
+| `cutting_plane_verbose` | int/bool | `1` | Cutting-plane verbosity. |
+| `initial_lp_time_limit` | double | `360.0` | Time limit for the first LP. |
+| `time_limit_lp` | double | `180.0` | Time limit (seconds) for each LP. |
+| `time_limit_all` | double | `7200.0` | Global time limit (seconds) (`cutting_plane_time_limit`). |
+| `solver_tolerance_per_iter` | double | `1e-6` | Solver tolerance per iteration. |
+| `cuts_vio_tol` | double | `1e-4` | Cut violation tolerance. |
+| `cuts_act_tol` | double | `1e-4` | Cut activation tolerance. |
+| `opt_gap` | double | `1e-4` | Target optimality gap. |
+| `num_iter_no_improve` | int | `2` | Iterations without improvement before stopping (`cutting_plane_num_iter_no_improve`). |
+| `lloyd_random_starts` | int | `100` | Number of random Lloyd starts. |
+| `bnb_node_limit` | int | `0` | Max BnB nodes (`<=0` disables BnB) (`bnb_node_limit`). |
+| `bnb_time_limit` | double | `3600.0` | BnB time limit (seconds) (`bnb_time_limit`). |
+| `bnb_gap_tol` | double | `1e-4` | Relative gap tolerance for BnB (`bnb_gap_tol`). |
+| `bnb_verbose` | int | `1` | BnB verbosity level (`bnb_verbose`). |
+| `output_file` | string | auto | File name for cutting plane log (defaults to data/K-based name). |
+| `bnb_output_file` | string | auto | File name for Branch-and-Bound log (derived from data/K). |

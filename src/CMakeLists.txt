@@ -8,7 +8,7 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(cutLPK) # LANGUAGES CXX CUDA
+project(cutLPK)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/config.cmake)
 
@@ -16,15 +16,13 @@ set(CUTLPK_CORE_SOURCES
     construct_LPK.cpp
     Lloyd.cpp
     fair_Lloyd.cpp
-    Solver_cupdlp.cpp
+    LP_solvers.cpp
     separation.cpp
     Rounding_heuristic.cpp
     iterative_cutting_plane.cpp
     spectral_heuristic.cpp
     branch_and_bound.cpp
-    ordinary_kmeans_solver.cpp
-    fair_kmeans_solver.cpp
-    spectral_kmeans_solver.cpp
+    cutLPK.cpp
 )
 
 add_library(cutlpk_core STATIC ${CUTLPK_CORE_SOURCES})
@@ -56,64 +54,41 @@ endif()
 ######################
 # Cuda
 ######################
-# CUDA setup
 message(NOTICE "Finding CUDA environment")
 message(NOTICE "    - CUDA Home detected at ${CMAKE_CUDA_PATH}")
-set(CMAKE_CUDA_ARCHITECTURES "all")
-set(CMAKE_CUDA_COMPILER "${CMAKE_CUDA_PATH}/bin/nvcc")
-
-
-# Check if CUDA compiler was found
-if(CMAKE_CUDA_COMPILER)
-    message(NOTICE "CUDA found: compiler at ${CMAKE_CUDA_COMPILER}")
-    target_compile_definitions(cutlpk_core PUBLIC CUDA_AVAILABLE)
-else()
-  message(FATAL_ERROR "CUDA not found. This project requires CUDA.")
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.23")
+        set(CMAKE_CUDA_ARCHITECTURES all)
+    else()
+        set(CMAKE_CUDA_ARCHITECTURES 60 61 70 75 80 86 89 90 90-virtual)
+    endif()
 endif()
 
-# Find and link CUDA runtime library
-find_library(CUDA_RUNTIME_LIBRARY cudart HINTS ${CMAKE_CUDA_PATH}/lib64)
-if(NOT CUDA_RUNTIME_LIBRARY)
-  message(FATAL_ERROR "CUDA runtime library not found")
-endif()
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
 
-# Find and link CUDA Sparse library
-find_library(CUDA_SPARSE_LIBRARY cusparse HINTS ${CMAKE_CUDA_PATH}/lib64)
-if(NOT CUDA_SPARSE_LIBRARY)
-  message(FATAL_ERROR "cuSPARSE library not found")
-endif()
+set(CUTLPK_CUDA_LIBS
+    CUDA::cudart
+    CUDA::cusparse
+    CUDA::cublas
+)
 
-# Find and link cuBLAS library
-find_library(CUDA_BLAS_LIBRARY cublas HINTS ${CMAKE_CUDA_PATH}/lib64)
-if(NOT CUDA_BLAS_LIBRARY)
-  message(FATAL_ERROR "cuBLAS library not found")
-endif()
-
-find_library(CUDA_DRIVER_LIBRARY cuda
-        HINTS
-                ${CMAKE_CUDA_PATH}/lib64
-                ${CMAKE_CUDA_PATH}/lib64/stubs
-                /usr/lib/x86_64-linux-gnu)
-if(NOT CUDA_DRIVER_LIBRARY)
-    message(FATAL_ERROR "CUDA driver library not found")
-endif()
-
-find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt HINTS ${CMAKE_CUDA_PATH}/lib64)
-if(NOT CUDA_DEVICE_RUNTIME_LIBRARY)
-    message(FATAL_ERROR "CUDA device runtime library not found")
-endif()
-
-target_include_directories(cutlpk_core PUBLIC ${CMAKE_CUDA_PATH}/include)
+target_link_libraries(cutlpk_core PUBLIC ${CUTLPK_CUDA_LIBS})
 
 ######################
 # cuPDLPx
 ######################
 set(CUPDLPX_INCLUDE_DIR "${CUPDLPX_ROOT}/include")
 set(CUPDLPX_LIB_DIR "${CUPDLPX_ROOT}/build")
+set(PSLP_INTERNAL_INCLUDE "${CUPDLPX_ROOT}/build/_deps/pslp-src/include/PSLP")
 
 if(ENABLE_CUPDLPX)
     message(STATUS "cuPDLPx support enabled")
-    target_include_directories(cutlpk_core PUBLIC ${CUPDLPX_INCLUDE_DIR})
+    target_include_directories(cutlpk_core PUBLIC 
+            ${PSLP_INTERNAL_INCLUDE}      
+            ${CUPDLPX_ROOT}/include        
+            ${CUPDLPX_ROOT}/internal   
+        )
     target_link_directories(cutlpk_core PUBLIC ${CUPDLPX_LIB_DIR})
 
     find_library(CUPDLPX_LIB cupdlpx PATHS ${CUPDLPX_LIB_DIR} NO_DEFAULT_PATH)
@@ -136,13 +111,6 @@ else()
     message(STATUS "cuPDLPx support disabled")
 endif()
 
-target_link_libraries(cutlpk_core PUBLIC
-    ${CUDA_RUNTIME_LIBRARY}
-    ${CUDA_SPARSE_LIBRARY}
-    ${CUDA_BLAS_LIBRARY}
-    ${CUDA_DRIVER_LIBRARY}
-    ${CUDA_DEVICE_RUNTIME_LIBRARY})
-
 ######################
 # Gurobi
 ######################
@@ -152,4 +120,4 @@ target_link_libraries(cutlpk_core PUBLIC
     ${GUROBI_ROOT}/lib/libgurobi_c++.a
     ${GUROBI_ROOT}/lib/libgurobi130.so
     )
-message(NOTICE, " Solver Gurobi enabled ")
+message(NOTICE, " Solver Gurobi for assignment problem enabled ")
