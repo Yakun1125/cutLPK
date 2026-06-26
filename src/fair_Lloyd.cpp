@@ -1,40 +1,5 @@
 #include "fair_Lloyd.h"
-#include <fstream>
 #include <iostream>
-
-void setupGurobiWLS(GRBEnv& env) {
-    const std::string filename = "gurobi.lic";
-    std::ifstream wls_file(filename);
-
-    if (wls_file.is_open()) {
-        std::string line;
-        std::string accessID, secret, licenseID;
-
-        while (std::getline(wls_file, line)) {
-            auto pos = line.find('=');
-            if (pos == std::string::npos) continue;
-
-            std::string key = line.substr(0, pos);
-            std::string value = line.substr(pos + 1);
-
-            if (key == "WLSACCESSID") accessID = value;
-            else if (key == "WLSSECRET") secret = value;
-            else if (key == "LICENSEID") licenseID = value;
-        }
-
-        if (!accessID.empty() && !secret.empty() && !licenseID.empty()) {
-            try {
-                env.set("WLSACCESSID", accessID);
-                env.set("WLSSECRET", secret);
-                env.set("LICENSEID", licenseID);
-            } catch (GRBException& e) {
-                std::cerr << "Error setting Gurobi WLS parameters: " << e.getMessage() << std::endl;
-            }
-        } 
-    } else {
-        std::cout << filename << " not found. Proceeding without WLS setup from file." << std::endl;
-    }
-}
 
 int gcd(int a, int b) {
     while (b != 0) {
@@ -655,33 +620,17 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
     std::vector<int> assignment(n, -1);
     bool changed = assignClusters(dataPoints, centroids, assignment);
     double currentWCSS = computeWCSS(dataPoints, centroids, assignment);
+    int lloyd_iters = 0;
+    double prevWCSS = currentWCSS;
 
     for (int iter = 0; iter < maxIterations; ++iter)
     {
-        //std::cout << "Fair Lloyd iteration " << iter + 1 << std::endl;
         if (!changed)
         {
             break;
         }
-    VectorXdList oldCentroids = centroids;
+        lloyd_iters++;
         updateCentroids(dataPoints, centroids, assignment, k);
-        currentWCSS = computeWCSS(dataPoints, centroids, assignment);
-        // Compute centroid shift
-        double centroidShiftSquared = 0.0;
-        double centroidNormSquared = 0.0;
-
-        for (size_t i = 0; i < centroids.size(); ++i)
-        {
-            centroidShiftSquared += (centroids[i] - oldCentroids[i]).squaredNorm();
-            centroidNormSquared += centroids[i].squaredNorm();
-        }
-
-        // Check relative centroid shift
-        if ((centroidNormSquared > 0 &&
-             centroidShiftSquared <= 1e-6 * centroidNormSquared))
-        {
-            break;
-        }
         // if new centroids shifted, do assignment
         FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
         if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
@@ -689,7 +638,16 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
             break;
         }
         changed = (assign_status == FairAssignStatus::SUCCESS);
+        currentWCSS = computeWCSS(dataPoints, centroids, assignment);
+        // Converge when objective stops decreasing
+        if (currentWCSS >= prevWCSS)
+        {
+            break;
+        }
+        prevWCSS = currentWCSS;
     }
+
+    std::cout << "  Fair Lloyd converged after " << lloyd_iters << " iterations (seed " << random_seed << "), objective " << currentWCSS << std::endl;
 
     // Eigen::MatrixXd PartitionMatrix = createPartitionMatrix(assignment, k);
 

@@ -18,8 +18,6 @@ enum class FairAssignStatus {
 Most functions can be inherent from Lloyd
 We need to adjust the assignment and main iteration
 */
-void setupGurobiWLS(GRBEnv& env);
-
 double find_simplified_fraction(int numerator, int denominator, double target_factor);
 
 double find_simplified_fraction_Tau(int numerator, int K, double target_factor);
