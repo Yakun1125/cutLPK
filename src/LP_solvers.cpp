@@ -26,7 +26,6 @@ int solver_cupdlpx(
     A_desc.m = lp.consLb.size();
     A_desc.n = lp.objCoef.size();
     A_desc.fmt = matrix_csc;
-    A_desc.zero_tolerance = 0.0;
     A_desc.data.csc.nnz = lp.ConsMatrix.nonZeros();
     A_desc.data.csc.col_ptr = const_cast<int*>(lp.ConsMatrix.outerIndexPtr());
     A_desc.data.csc.row_ind = const_cast<int*>(lp.ConsMatrix.innerIndexPtr());
@@ -77,6 +76,7 @@ int solver_cupdlpx(
     params.termination_criteria.eps_optimal_relative = tolerance; 
     params.termination_criteria.eps_feasible_relative = tolerance;  
     params.termination_criteria.time_sec_limit = time_limit;
+    params.matrix_zero_tol = 0.0;
     params.presolve = false;
     cupdlpx_result_t* res = solve_lp_problem(prob, &params);
     lp_problem_free(prob);
@@ -205,14 +205,13 @@ int solver_gurobi(double& dual_obj, double& primal_obj,
         env.set(GRB_IntParam_OutputFlag, 0);
         //env.set(GRB_StringParam_LogFile, "gurobi.log");
 
-        // Configure WLS credentials (if provided)
-        setupGurobiWLS(env);
-
         env.start();
 
         env.set(GRB_IntParam_OutputFlag, 0);
         env.set(GRB_DoubleParam_TimeLimit, time_limit);
+    #if defined(GRB_VERSION_MAJOR) && GRB_VERSION_MAJOR >= 13
         env.set(GRB_IntParam_PDHGGPU, 1);
+    #endif
         env.set(GRB_IntParam_Method, 6);
         env.set(GRB_IntParam_Crossover, 0);
 

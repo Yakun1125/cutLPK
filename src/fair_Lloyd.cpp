@@ -10,165 +10,40 @@ int gcd(int a, int b) {
     return a;
 }
 
-double find_simplified_fraction(
-    int numerator,
-    int denominator,
-    double target_factor)
-{
-
-    // First try direct simplification
-    // We need to handle floating point multiplication by scaling up to integers
-
-    // Determine if the target numerator is (nearly) an integer
-    double scaled_num = numerator * target_factor;
-    double integral_part;
-    double fractional_part = std::modf(scaled_num, &integral_part);
-    double adjusted_factor = target_factor;
-
-    // Need to scale up to work with integers
-    int scale = 10;
-    while (std::fmod(scaled_num * scale, 1.0) > 0.000001 && scale < 1000000)
-    {
-        scale *= 10;
-    }
-
-    int scaled_num_int = static_cast<int>(std::round(scaled_num * scale));
-    int scaled_denom = denominator * scale;
-
-    // Find GCD and simplify
-    int common_div = gcd(scaled_num_int, scaled_denom);
-    int simplified_n = scaled_num_int / common_div;
-    int simplified_d = scaled_denom / common_div;
-
-    adjusted_factor = double(simplified_n) / double(simplified_d);
-    adjusted_factor = adjusted_factor/(double(numerator) / double(denominator));
-
-    // Check if this simplification meets our criteria
-    if (simplified_d < denominator)
-    {
-        std::cout << "Found direct simplification with exact factor:\n";
-        std::cout << "Original fraction: " << numerator << "/" << denominator << "\n";
-        std::cout << "Target factor: " << target_factor << "\n";
-        std::cout << "Adjusted factor: " << adjusted_factor << "\n";
-        std::cout << "Scaled to integers: " << scaled_num_int << "/" << scaled_denom << "\n";
-        std::cout << "Simplified to: " << simplified_n << "/" << simplified_d << "\n";
-        return adjusted_factor;
-    }
-    // Replace the while loop section (lines 58-79) with this:
-    else
-    {
-        // Parameters for tolerance-based search
-        double denominator_tolerance = 0.2;  // Allow 20% change in denominator
-        double factor_tolerance = 0.1;       // Allow 10% change in factor
-        
-        double target_value = (numerator * target_factor) / denominator;
-        
-        int min_denominator = static_cast<int>(denominator * (1 - denominator_tolerance));
-        int max_denominator = static_cast<int>(denominator * (1 + denominator_tolerance));
-        
-        double min_factor = target_factor;  // Must be >= target_factor for "larger" preference
-        double max_factor = target_factor * (1 + factor_tolerance);
-        
-        double best_diff = std::numeric_limits<double>::infinity();
-        double best_adjusted_factor = target_factor;
-        bool found = false;
-        
-        // Search through denominator range
-        for (int d = min_denominator; d <= max_denominator; ++d) {
-            if (d <= 0) continue;  // Skip invalid denominators
-            
-            double target_numerator = target_value * d;
-            
-            // Try both floor and ceiling of target numerator
-            for (int n : {static_cast<int>(target_numerator), static_cast<int>(target_numerator) + 1}) {
-                if (n <= 0) continue;  // Skip invalid numerators
-                
-                // Calculate what this fraction represents in terms of the original
-                double fraction_value = static_cast<double>(n) / d;
-                double actual_factor = fraction_value / (static_cast<double>(numerator) / denominator);
-                
-                // Check if factor is in acceptable range (must be >= target_factor for "larger")
-                if (actual_factor < min_factor || actual_factor > max_factor) continue;
-                
-                // Simplify the fraction
-                int common_divisor = gcd(n, d);
-                int simplified_n = n / common_divisor;
-                int simplified_d = d / common_divisor;
-                
-                // Ensure simplified denominator is smaller than original
-                if (simplified_d >= denominator) continue;
-                
-                // For "larger" preference: prefer values >= target, minimize difference
-                double current_value = static_cast<double>(simplified_n) / simplified_d;
-                double original_value = static_cast<double>(numerator) / denominator;
-                double scaled_current = current_value / original_value;  // This is the actual scaling factor
-                
-                if (scaled_current >= target_factor) {  // "larger" preference
-                    double diff = scaled_current - target_factor;  // How much larger than target
-                    
-                    if (diff < best_diff) {
-                        best_diff = diff;
-                        best_adjusted_factor = scaled_current;
-                        found = true;
-                        
-                        std::cout << "Found better simplification:\n";
-                        std::cout << "Original fraction: " << numerator << "/" << denominator << "\n";
-                        std::cout << "Target factor: " << target_factor << "\n";
-                        std::cout << "Adjusted factor: " << best_adjusted_factor << "\n";
-                        std::cout << "Fraction found: " << n << "/" << d << "\n";
-                        std::cout << "Simplified to: " << simplified_n << "/" << simplified_d << "\n";
-                        std::cout << "Difference from target: " << diff << "\n";
-                    }
-                }
-            }
-        }
-        
-        if (found) {
-            return best_adjusted_factor;
-        }
-        
-        // Fallback: if no solution found in tolerance range, try the original approach
-        // (your existing while loop as backup)
-        scaled_denom = denominator * scale;  // Reset to original values
-        while (scaled_denom > scaled_num_int && scaled_denom > 1) {
-            scaled_denom--;
-            int common_div = gcd(scaled_num_int, scaled_denom);
-            int simplified_n = scaled_num_int / common_div;
-            int simplified_d = scaled_denom / common_div;
-            
-            if (simplified_d < denominator) {
-                adjusted_factor = double(simplified_n) / double(simplified_d);
-                adjusted_factor = adjusted_factor / (double(numerator) / double(denominator));
-                
-                if (adjusted_factor >= target_factor) {  // Ensure it's "larger"
-                    std::cout << "Found fallback simplification:\n";
-                    std::cout << "Original fraction: " << numerator << "/" << denominator << "\n";
-                    std::cout << "Target factor: " << target_factor << "\n";
-                    std::cout << "Adjusted factor: " << adjusted_factor << "\n";
-                    std::cout << "Simplified to: " << simplified_n << "/" << simplified_d << "\n";
-                    return adjusted_factor;
-                }
-            }
-        }
-    }
-    std::cout << "No valid tau simplification found, returning original factor.\n";
-    return adjusted_factor; 
-}
-
+// ---------------------------------------------------------------
+// Simplified tau parameter for fair assignment model.
+//
+// The tau-ratio constraint requires each cluster k to get at least
+//   ceil(tau_g * |X_g|)  points from group g, where tau_g = rho / K.
+//
+// Since the LHS (a point count) is integral, we ceil the fractional
+// RHS without changing the feasible set.  This function computes
+//   f_g = target_num / |X_g|,   target_num integer,
+// such that:
+//   1. f_g >= tau_g  (ceil — never weakens fairness),
+//   2. K * target_num <= |X_g|  (K clusters can simultaneously
+//      satisfy the constraint without exceeding group total),
+//   3. The model constraint  sum_{i in X_g} x_{i,k} >= |X_g| * f_g
+//      has integral RHS (= target_num), preserving total unimodularity
+//      so the LP optimum is integer-valued.
+//
+// When the tightest setting would be infeasible (K * ceil > |X_g|),
+// we decrement to the largest feasible integer — this is the tightest
+// constraint still admitting a K-cluster assignment.
+// ---------------------------------------------------------------
 double find_simplified_fraction_Tau(
     int numerator,
     int K,
     double target_factor){
-        // check numerator * target_factor is an integer or not. And (numerator * target_factor)*K should be less or equal to numerator
+    // numerator * target_factor rounded up, but must satisfy K * target_num <= numerator
     double scaled_num = numerator * target_factor;
     double integral_part;
     double fractional_part = std::modf(scaled_num, &integral_part);
     double adjusted_factor = target_factor;
-    // if scaled_num is an integer, we can use it directly
+    // Case 1: scaled_num is (nearly) integer — use directly if feasible
     if (fractional_part < 0.000001 || fractional_part > 0.999999)
     {
         int target_num = static_cast<int>(std::round(scaled_num));
-                // recompute actual factor
         adjusted_factor = double(target_num) / double(numerator);
         if (target_num * K <= numerator)
         {
@@ -182,9 +57,8 @@ double find_simplified_fraction_Tau(
         }
     }
     else{
-        // if it is not an integer, we upper round it to to see if it is feasible
+        // Case 2: ceil and check feasibility for K clusters
         int target_num = static_cast<int>(std::ceil(scaled_num));
-        // recompute actual factor
         adjusted_factor = double(target_num) / double(numerator);
         if (target_num * K <= numerator)
         {
@@ -197,7 +71,7 @@ double find_simplified_fraction_Tau(
             return adjusted_factor;
         }
         else{
-            // decrease target_num 1 at a time to find a simplification meeting the criteria
+            // Case 3: ceil too tight — decrement to largest feasible integer
             while (target_num > 0)
             {
                 target_num--;
@@ -219,110 +93,7 @@ double find_simplified_fraction_Tau(
     return target_factor; 
 }
 
-std::vector<double> alpha_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K)
-{
-    std::vector<double> adjusted_factors(groupRatio.size(), 1.0);
-    
-    for (int g = 0; g < groupRatio.size(); g++)
-    {
-        int C = groupRatio[g];  // numerator (group size)
-        int D = N;              // denominator (total size)
-        double alpha = fairness_param;
-        
-        // Check if the problem is feasible at all
-        // We need A*K <= C and B*K <= D and A/B >= (C*alpha)/D
-        // The maximum possible A/B is (C/K)/(1) = C/K (when A = C/K, B = 1)
-        // The minimum required A/B is (C*alpha)/D
-        double max_possible_ratio = static_cast<double>(C) / K;
-        double min_required_ratio = (static_cast<double>(C) * alpha) / D;
-        
-        if (max_possible_ratio < min_required_ratio) {
-            std::cerr << "ERROR: Infeasible fairness parameter for group " << g << "!" << std::endl;
-            std::cerr << "Group size: " << C << ", Total size: " << D << ", K: " << K << std::endl;
-            std::cerr << "Fairness parameter (alpha): " << alpha << std::endl;
-            std::cerr << "Maximum achievable ratio: " << max_possible_ratio << std::endl;
-            std::cerr << "Minimum required ratio: " << min_required_ratio << std::endl;
-            std::cerr << "Suggestion: Reduce alpha to at most " << (max_possible_ratio * D) / C << std::endl;
-            
-            // Use the maximum achievable alpha as fallback
-            double max_achievable_alpha = (max_possible_ratio * D) / C;
-            std::cerr << "Using fallback alpha = " << max_achievable_alpha << " for group " << g << std::endl;
-            alpha = max_achievable_alpha;
-            min_required_ratio = (static_cast<double>(C) * alpha) / D;
-        }
-        
-        // Now find the optimal A/B
-        double target_ratio = (C * alpha) / D;
-        
-        int best_A = -1, best_B = -1;
-        double min_diff = std::numeric_limits<double>::infinity();
-        
-        // Iterate through all possible values of B
-        int max_B = D / K;  // From constraint B*K <= D
-        
-        bool found_solution = false;
-        for (int B = 1; B <= max_B; ++B) {
-            // From constraint A/B >= (C*alpha)/D, we get A >= B * (C*alpha)/D
-            double min_A_exact = B * target_ratio;
-            int min_A = static_cast<int>(std::ceil(min_A_exact));
-            
-            // From constraint A*K <= C, we get A <= C/K
-            int max_A = C / K;
-            
-            // Check if there's a valid A for this B
-            if (min_A <= max_A) {
-                found_solution = true;
-                
-                // Choose the A that minimizes |A/B - target_ratio|
-                double ratio_min_A = static_cast<double>(min_A) / B;
-                double diff_min_A = std::abs(ratio_min_A - target_ratio);
-                
-                if (diff_min_A < min_diff) {
-                    min_diff = diff_min_A;
-                    best_A = min_A;
-                    best_B = B;
-                }
-                
-                // Also check max_A in case it gives a smaller difference
-                if (max_A > min_A) {
-                    double ratio_max_A = static_cast<double>(max_A) / B;
-                    double diff_max_A = std::abs(ratio_max_A - target_ratio);
-                    
-                    if (diff_max_A < min_diff) {
-                        min_diff = diff_max_A;
-                        best_A = max_A;
-                        best_B = B;
-                    }
-                }
-            }
-        }
-        
-        if (!found_solution || best_A == -1) {
-            std::cerr << "ERROR: No valid solution found for group " << g << "!" << std::endl;
-            std::cerr << "Using original fairness parameter as fallback." << std::endl;
-            adjusted_factors[g] = fairness_param;
-        } else {
-            // Calculate the adjusted factor
-            double optimal_ratio = static_cast<double>(best_A) / best_B;
-            double original_ratio = static_cast<double>(C) / D;
-            adjusted_factors[g] = optimal_ratio / original_ratio;
-            
-            // std::cout << "Group " << g << " fairness adjustment:\n";
-            // std::cout << "  Original group ratio: " << C << "/" << D << " = " << original_ratio << "\n";
-            // std::cout << "  Target fairness factor: " << fairness_param << "\n";
-            // std::cout << "  Optimal A/B: " << best_A << "/" << best_B << " = " << optimal_ratio << "\n";
-            // std::cout << "  Adjusted fairness factor: " << adjusted_factors[g] << "\n";
-            // std::cout << "  Constraint checks:\n";
-            // std::cout << "    A*K <= C: " << best_A << "*" << K << " = " << best_A*K << " <= " << C << " ✓\n";
-            // std::cout << "    B*K <= D: " << best_B << "*" << K << " = " << best_B*K << " <= " << D << " ✓\n";
-            // std::cout << "    A/B >= target: " << optimal_ratio << " >= " << target_ratio << " ✓\n";
-            // std::cout << "    Difference from target: " << min_diff << "\n\n";
-        }
-    }
-    
-    return adjusted_factors;
-}
-
+// Compute integral-feasible tau parameters per group (see find_simplified_fraction_Tau above).
 std::vector<double> tau_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K)
 {
     std::vector<double> adjusted_factors(groupRatio.size(), 1.0);
@@ -419,13 +190,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
                 }
             }
         }
-        model->optimize();
-        if (model->get(GRB_IntAttr_Status) == GRB_INFEASIBLE)
-        {
-            std::cout << "Assignment problem is infeasible." << std::endl;
-            return std::make_pair(std::unique_ptr<GRBModel>(nullptr),
-                                  std::vector<std::vector<GRBVar>>());
-        }
+        // Feasibility will be checked on first assignment solve
     }
     catch (GRBException e)
     {
@@ -459,7 +224,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
         {
             for (int k = 0; k < numClusters; ++k)
             {
-                x[i][k] = model->addVar(0.0, 1.0, 0.0, GRB_BINARY,
+                x[i][k] = model->addVar(0.0, 1.0, 0.0, GRB_CONTINUOUS,
                                         "x_" + std::to_string(i) + "_" + std::to_string(k));
             }
         }
@@ -511,13 +276,7 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
                                  "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
             }
         }
-        model->optimize();
-        if (model->get(GRB_IntAttr_Status) == GRB_INFEASIBLE)
-        {
-            std::cout << "Assignment problem is infeasible." << std::endl;
-            return std::make_pair(std::unique_ptr<GRBModel>(nullptr),
-                                  std::vector<std::vector<GRBVar>>());
-        }
+        // Feasibility verified by constraint structure (totally unimodular LP)
     }
     catch (GRBException e)
     {

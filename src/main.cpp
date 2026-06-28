@@ -58,6 +58,7 @@ int main(int argc, char* argv[]) {
         else if (key == "opt_gap") params.cutting_plane_opt_gap = std::stod(value);
         else if (key == "lloyd_random_starts") params.lloyd_num_random_starts = std::stoi(value);
         else if (key == "is_spectral_clustering") params.is_spectral_clustering = (value == "true" || value == "1");
+        else if (key == "heuristic_only") params.heuristic_only = (value == "true" || value == "1" || value == "yes");
         else if (key == "output_file") params.cutting_plane_output_file = value;    
         else if (key == "bnb_output_file") params.bnb_output_file = value;    
         else if (key == "group_file") params.fair_clustering_group_file = value;   
@@ -232,7 +233,7 @@ int main(int argc, char* argv[]) {
         // Replace "_output" with best_upper_bound_solution
         pos = outputFileName.find(final_lp_Xsol);
         if (pos != std::string::npos) {
-            outputFileName.replace(pos, 7, best_upper_bound_solution);
+            outputFileName.replace(pos, final_lp_Xsol.length(), best_upper_bound_solution);
         }
         // Save the best upper bound solution matrix
         std::ofstream bestUpperBoundFile(outputFileName);

@@ -18,11 +18,7 @@ enum class FairAssignStatus {
 Most functions can be inherent from Lloyd
 We need to adjust the assignment and main iteration
 */
-double find_simplified_fraction(int numerator, int denominator, double target_factor);
-
 double find_simplified_fraction_Tau(int numerator, int K, double target_factor);
-
-std::vector<double> alpha_fairParam_adjustment(const std::vector<int>& groupRatio, double fairness_param, int N, int K);
 
 std::vector<double> tau_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K);
 

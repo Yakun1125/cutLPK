@@ -54,7 +54,7 @@ OrdinaryKMeansResult solveOrdinaryKMeans(
     LPK lp;
     constructLPK(lp, dis_matrix, N, K);
 
-    if (params.cutting_plane_warm_start > 0) {
+    if (params.cutting_plane_warm_start > 0 || params.heuristic_only) {
         double bestClusteringCost = kInfinity;
         std::vector<int> bestlloydAssignment;
 
@@ -74,6 +74,35 @@ OrdinaryKMeansResult solveOrdinaryKMeans(
             Lloyd_Xsol = createPartitionMatrix(bestlloydAssignment, K);
             if (verbose) {
                 std::cout << "Lloyd objective: " << initialLloydObj << std::endl;
+            }
+            cutLPK_info.upper_bound = initialLloydObj;
+            cutLPK_info.lower_bound = -kInfinity;
+            cutLPK_info.optimality_gap = kInfinity;
+            cutLPK_info.retcode = static_cast<int>(ICPStatus::HEURISTIC_ONLY);
+            cutLPK_info.best_upper_bound_solution = Lloyd_Xsol;
+            cutLPK_info.final_lp_Xsol = Lloyd_Xsol;
+
+            if (params.heuristic_only) {
+                OrdinaryKMeansResult result;
+                result.lloyd_objective = initialLloydObj;
+                result.cut_info = cutLPK_info;
+                result.icp_status = ICPStatus::HEURISTIC_ONLY;
+                result.assignment = createAssignment(Lloyd_Xsol, K);
+
+                if (params.cutting_plane_verbose > 0) {
+                    std::cout << "\n=== Heuristic Only Complete ===" << std::endl;
+                    std::cout << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                    std::cout << "Lloyd upper bound: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+                }
+                if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+                    std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+                    if (file.is_open()) {
+                        file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                        file << "Heuristic only: Yes" << std::endl;
+                        file << "Lloyd upper bound: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+                    }
+                }
+                return result;
             }
             addInitialCuts(params, N, Lloyd_Xsol, lp, cutting_planes);
             cutLPK_info.best_upper_bound_solution = Lloyd_Xsol;
@@ -202,11 +231,15 @@ FairKMeansResult solveFairKMeans(
         std::cout << "Fairness type: " << params.fair_clustering_fairness_type << std::endl;
     }
 
-    // Setup Gurobi environment
+    // Setup Gurobi environment for fair assignment subproblems.
     GRBEnv env = GRBEnv(true);
-    env.set(GRB_IntParam_OutputFlag, 0);
-    setupGurobiWLS(env);
-    env.start();
+    try {
+        env.set(GRB_IntParam_OutputFlag, 0);
+        // Gurobi reads gurobi.lic, GRB_LICENSE_FILE, and GUROBI_HOME during start().
+        env.start();
+    } catch (GRBException& e) {
+        throw std::runtime_error("Failed to start Gurobi environment: " + e.getMessage());
+    }
 
     // Build fair assignment model and adjust fairness parameters
     std::unique_ptr<GRBModel> model;
@@ -214,7 +247,6 @@ FairKMeansResult solveFairKMeans(
     std::vector<double> fairness_param_adjusted;
 
     if (params.fair_clustering_fairness_type == "alpha") {
-        //fairness_param_adjusted = alpha_fairParam_adjustment(groupRatio, params.fair_clustering_fairness_param, N, K);
         fairness_param_adjusted = std::vector<double>(numGroups, params.fair_clustering_fairness_param);
         auto result = GRB_buildFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
         model = std::move(result.first);
@@ -232,13 +264,11 @@ FairKMeansResult solveFairKMeans(
         throw std::runtime_error("Failed to create Gurobi model for fair assignment.");
     }
 
-    // Construct the fair LPK
     LPK fairlp;
-    constructFairLPK(fairlp, dis_matrix, N, K, const_cast<std::vector<std::vector<bool>>&>(dataGroups), 
-                     const_cast<std::vector<int>&>(groupRatio), fairness_param_adjusted, params.fair_clustering_fairness_type);
+    bool fairlp_constructed = false;
 
     // Warm start with fair Lloyd clustering
-    if (params.cutting_plane_warm_start > 0) {
+    if (params.cutting_plane_warm_start > 0 || params.heuristic_only) {
         double bestClusteringCost = kInfinity;
         std::vector<int> bestlloydAssignment;
 
@@ -260,9 +290,48 @@ FairKMeansResult solveFairKMeans(
             if (verbose) {
                 std::cout << "Fair Lloyd objective: " << initialLloydObj << std::endl;
             }
+            cutLPK_info.upper_bound = initialLloydObj;
+            cutLPK_info.lower_bound = -kInfinity;
+            cutLPK_info.optimality_gap = kInfinity;
+            cutLPK_info.retcode = static_cast<int>(ICPStatus::HEURISTIC_ONLY);
+            cutLPK_info.best_upper_bound_solution = Lloyd_Xsol;
+            cutLPK_info.final_lp_Xsol = Lloyd_Xsol;
+
+            if (params.heuristic_only) {
+                FairKMeansResult result;
+                result.lloyd_objective = initialLloydObj;
+                result.cut_info = cutLPK_info;
+                result.icp_status = ICPStatus::HEURISTIC_ONLY;
+                result.assignment = createAssignment(Lloyd_Xsol, K);
+
+                if (params.cutting_plane_verbose > 0) {
+                    std::cout << "\n=== Heuristic Only Complete ===" << std::endl;
+                    std::cout << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                    std::cout << "Fair Lloyd upper bound: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+                }
+                if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+                    std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+                    if (file.is_open()) {
+                        file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                        file << "Heuristic only: Yes" << std::endl;
+                        file << "Fair Lloyd upper bound: " << std::fixed << std::setprecision(8) << initialLloydObj << std::endl;
+                    }
+                }
+                return result;
+            }
+            if (!fairlp_constructed) {
+                constructFairLPK(fairlp, dis_matrix, N, K, const_cast<std::vector<std::vector<bool>>&>(dataGroups),
+                                 const_cast<std::vector<int>&>(groupRatio), fairness_param_adjusted, params.fair_clustering_fairness_type);
+                fairlp_constructed = true;
+            }
             addInitialCuts(params, N, Lloyd_Xsol, fairlp, cutting_planes);
             cutLPK_info.best_upper_bound_solution = Lloyd_Xsol;
         }
+    }
+
+    if (!fairlp_constructed) {
+        constructFairLPK(fairlp, dis_matrix, N, K, const_cast<std::vector<std::vector<bool>>&>(dataGroups), 
+                         const_cast<std::vector<int>&>(groupRatio), fairness_param_adjusted, params.fair_clustering_fairness_type);
     }
 
     fairlp.setupLPK();
@@ -372,6 +441,32 @@ SpectralKMeansResult solveSpectralKMeans(
     double spectralObjective = L_copy.cwiseProduct(Spectral_Xsol).sum();
     
     std::cout << "Spectral heuristic completed with objective: " << spectralObjective << std::endl;
+    if (params.heuristic_only) {
+        result.spectral_objective = spectralObjective;
+        result.cut_info.upper_bound = spectralObjective;
+        result.cut_info.lower_bound = -kInfinity;
+        result.cut_info.optimality_gap = kInfinity;
+        result.cut_info.retcode = static_cast<int>(ICPStatus::HEURISTIC_ONLY);
+        result.cut_info.best_upper_bound_solution = Spectral_Xsol;
+        result.cut_info.final_lp_Xsol = Spectral_Xsol;
+        result.icp_status = ICPStatus::HEURISTIC_ONLY;
+        result.best_solution = Spectral_Xsol;
+
+        if (params.cutting_plane_verbose > 0) {
+            std::cout << "\n=== Heuristic Only Complete ===" << std::endl;
+            std::cout << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+            std::cout << "Spectral heuristic upper bound: " << std::fixed << std::setprecision(8) << spectralObjective << std::endl;
+        }
+        if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+            std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+            if (file.is_open()) {
+                file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                file << "Heuristic only: Yes" << std::endl;
+                file << "Spectral heuristic upper bound: " << std::fixed << std::setprecision(8) << spectralObjective << std::endl;
+            }
+        }
+        return result;
+    }
     
     // If the heuristic objective is less than zero (with tolerance 1e-6), it's already optimal
     if (spectralObjective < 1e-6) {

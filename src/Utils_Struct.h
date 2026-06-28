@@ -155,6 +155,7 @@ struct parameters {
 	double fair_clustering_fairness_param;
 	std::string fair_clustering_group_file;
 	bool is_spectral_clustering;
+    bool heuristic_only;
 	    // Constructor with default values
 		parameters() : 
 		random_seed(42),
@@ -199,7 +200,8 @@ struct parameters {
 		fair_clustering_fairness_type(""),
 		fair_clustering_fairness_param(1.0),
 		fair_clustering_group_file(""),
-		is_spectral_clustering(false)
+        is_spectral_clustering(false),
+        heuristic_only(false)
     {}
 };
 
@@ -211,7 +213,8 @@ enum class ICPStatus : int {
     TIME_OR_LIMIT = 3,
     ERROR = 4,
     MAX_ITER = 5,
-    INFEASIBLE = 6
+    INFEASIBLE = 6,
+    HEURISTIC_ONLY = 7
 };
 
 struct cutLPKSolveInfo {
