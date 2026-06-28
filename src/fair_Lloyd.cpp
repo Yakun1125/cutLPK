@@ -274,6 +274,9 @@ std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_build
 
                 model->addConstr(sum_xikg >= groupRatio[g] * fairness_param[g],
                                  "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
+                // Upper bound: redundant for IP, but required for TU integrality of LP relaxation
+                model->addConstr(sum_xikg <= groupRatio[g],
+                                 "fair_ub_k" + std::to_string(k) + "_g" + std::to_string(g));
             }
         }
         // Feasibility verified by constraint structure (totally unimodular LP)
@@ -374,29 +377,35 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
                                                   int random_seed, GRBModel &model, std::vector<std::vector<GRBVar>> &x)
 {
     int n = dataPoints.size();
-    // initialized centroids and do assignment
+    // Initialize centroids with k-means++
     VectorXdList centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
     std::vector<int> assignment(n, -1);
-    bool changed = assignClusters(dataPoints, centroids, assignment);
+    
+    // Start with a FAIR assignment
+    FairAssignStatus init_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
+    if (init_status == FairAssignStatus::INFEASIBLE || init_status == FairAssignStatus::UNBOUNDED) {
+        std::cerr << "Initial fair assignment infeasible or unbounded. Stopping." << std::endl;
+        return std::make_pair(kInfinity, assignment);
+    }
     double currentWCSS = computeWCSS(dataPoints, centroids, assignment);
-    int lloyd_iters = 0;
     double prevWCSS = currentWCSS;
+    int lloyd_iters = 0;
 
     for (int iter = 0; iter < maxIterations; ++iter)
     {
-        if (!changed)
-        {
-            break;
-        }
-        lloyd_iters++;
+        // Update centroids from current assignment
         updateCentroids(dataPoints, centroids, assignment, k);
-        // if new centroids shifted, do assignment
+        // Fair assignment with new centroids
         FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
         if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
             std::cerr << "Fair assignment became infeasible during Lloyd iteration. Stopping early." << std::endl;
             break;
         }
-        changed = (assign_status == FairAssignStatus::SUCCESS);
+        if (assign_status != FairAssignStatus::SUCCESS) {
+            // CONVERGED: assignment unchanged
+            break;
+        }
+        lloyd_iters++;
         currentWCSS = computeWCSS(dataPoints, centroids, assignment);
         // Converge when objective stops decreasing
         if (currentWCSS >= prevWCSS)
@@ -407,8 +416,6 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
     }
 
     std::cout << "  Fair Lloyd converged after " << lloyd_iters << " iterations (seed " << random_seed << "), objective " << currentWCSS << std::endl;
-
-    // Eigen::MatrixXd PartitionMatrix = createPartitionMatrix(assignment, k);
 
     return std::make_pair(currentWCSS, assignment);
 }
