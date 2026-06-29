@@ -45,18 +45,22 @@ jobs:
           path: dist/*.tar.gz
 
   # ------------------------------------------------------------------
-  # Job 2 — Linux wheel (requires CUDA toolkit + Gurobi)
-  # Only runs on tag pushes or manual dispatch when secrets are set.
-  # To enable: add GUROBI_LICENSE (base64 of gurobi.lic) and GUROBI_HOME
-  # as repository secrets.
+  # Job 2 — Linux wheel (CUDA + Gurobi required at build time)
+  #
+  # GitHub-hosted runners do NOT have Gurobi or CUDA pre-installed.
+  # For 0.0.1, build wheels manually on Colab:
+  #   git clone https://github.com/Yakun1125/cutLPK && cd cutLPK
+  #   pip install build cupdlpx gurobipy && python -m build --wheel
+  #   twine upload dist/*.whl
+  #
+  # To enable this job later: use a self-hosted runner with CUDA 12.4
+  # and Gurobi 12 installed at /opt/gurobi, then set the repository
+  # variable CI_BUILD_WHEELS=1.
   # ------------------------------------------------------------------
   wheel-linux:
     needs: sdist
     runs-on: ubuntu-latest
-    # Skip if secrets not configured (don't fail on PRs)
-    if: >
-      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
-      && vars.CI_BUILD_WHEELS == '1'
+    if: false  # disabled until self-hosted runner with CUDA + Gurobi is available
     steps:
       - uses: actions/checkout@v4
 
@@ -65,14 +69,6 @@ jobs:
         with:
           cuda: "12.4"
 
-      - name: Set up Gurobi
-        if: env.GUROBI_LICENSE
-        env:
-          GUROBI_LICENSE: ${{ secrets.GUROBI_LICENSE }}
-        run: |
-          echo "$GUROBI_LICENSE" | base64 -d > "$HOME/gurobi.lic"
-          echo "GRB_LICENSE_FILE=$HOME/gurobi.lic" >> "$GITHUB_ENV"
-
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22
         env:
@@ -80,10 +76,11 @@ jobs:
           CIBW_ARCHS: "x86_64"
           CIBW_BEFORE_ALL: |
             pip install cupdlpx gurobipy numpy
+            apt-get install -y libeigen3-dev
           CIBW_ENVIRONMENT: >
             CMAKE_ARGS="
               -DEIGEN_INCLUDE_DIR=/usr/include/eigen3
-              -DGUROBI_ROOT=${GUROBI_HOME:-/opt/gurobi}
+              -DGUROBI_ROOT=/opt/gurobi
               -DENABLE_CUPDLPX=ON
               -DENABLE_GUROBI=ON
             "
