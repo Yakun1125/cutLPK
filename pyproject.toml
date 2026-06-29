@@ -11,7 +11,7 @@ name = "cutlpk"
 version = "0.0.1"
 description = "A scalable linear programming based solver for K-means, fair K-means, and spectral clustering"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 license-files = ["LICENSE.txt"]
 requires-python = ">=3.9"
 authors = [
