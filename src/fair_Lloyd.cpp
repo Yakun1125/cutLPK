@@ -415,7 +415,7 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
         prevWCSS = currentWCSS;
     }
 
-    std::cout << "  Fair Lloyd converged after " << lloyd_iters << " iterations (seed " << random_seed << "), objective " << currentWCSS << std::endl;
+    // std::cout << "  Fair Lloyd converged after " << lloyd_iters << " iterations (seed " << random_seed << "), objective " << currentWCSS << std::endl;
 
     return std::make_pair(currentWCSS, assignment);
 }
