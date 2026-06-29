@@ -1,0 +1,118 @@
+name: Build & publish
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1 — sdist (always runs, no GPU/Gurobi needed)
+  # ------------------------------------------------------------------
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - name: Verify sdist structure
+        run: |
+          python -c "
+          import tarfile, sys
+          with tarfile.open('dist/cutlpk-*.tar.gz') as tf:
+              names = tf.getnames()
+          required = ['python_api/bindings.cpp', 'python_api/cutlpk/__init__.py',
+                      'src/CMakeLists.txt', 'pyproject.toml']
+          for r in required:
+              assert any(r in n for n in names), f'Missing: {r}'
+          print(f'sdist OK — {len(names)} files')
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # ------------------------------------------------------------------
+  # Job 2 — Linux wheel (requires CUDA toolkit + Gurobi)
+  # Only runs on tag pushes or manual dispatch when secrets are set.
+  # To enable: add GUROBI_LICENSE (base64 of gurobi.lic) and GUROBI_HOME
+  # as repository secrets.
+  # ------------------------------------------------------------------
+  wheel-linux:
+    needs: sdist
+    runs-on: ubuntu-latest
+    # Skip if secrets not configured (don't fail on PRs)
+    if: >
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+      && vars.CI_BUILD_WHEELS == '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2
+        with:
+          cuda: "12.4"
+
+      - name: Set up Gurobi
+        if: env.GUROBI_LICENSE
+        env:
+          GUROBI_LICENSE: ${{ secrets.GUROBI_LICENSE }}
+        run: |
+          echo "$GUROBI_LICENSE" | base64 -d > "$HOME/gurobi.lic"
+          echo "GRB_LICENSE_FILE=$HOME/gurobi.lic" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22
+        env:
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_ARCHS: "x86_64"
+          CIBW_BEFORE_ALL: |
+            pip install cupdlpx gurobipy numpy
+          CIBW_ENVIRONMENT: >
+            CMAKE_ARGS="
+              -DEIGEN_INCLUDE_DIR=/usr/include/eigen3
+              -DGUROBI_ROOT=${GUROBI_HOME:-/opt/gurobi}
+              -DENABLE_CUPDLPX=ON
+              -DENABLE_GUROBI=ON
+            "
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux
+          path: wheelhouse/*.whl
+
+  # ------------------------------------------------------------------
+  # Job 3 — Publish to PyPI (only on tag pushes)
+  # ------------------------------------------------------------------
+  publish:
+    needs: [sdist, wheel-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          path: dist/
+
+      - name: Flatten dist
+        run: |
+          mkdir -p dist-final
+          find dist -name '*.tar.gz' -o -name '*.whl' | xargs -I{} cp {} dist-final/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-final/

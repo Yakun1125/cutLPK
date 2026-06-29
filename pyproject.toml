@@ -1,0 +1,75 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.9.0",
+    "pybind11>=2.11.0",
+    "numpy>=1.21",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "cutlpk"
+version = "0.0.1"
+description = "A scalable linear programming based solver for K-means, fair K-means, and spectral clustering"
+readme = "README.md"
+license = { text = "MIT" }
+license-files = ["LICENSE.txt"]
+requires-python = ">=3.9"
+authors = [
+    { name = "Yakun Wang", email = "yaw220@lehigh.edu" },
+    { name = "Aida Khajavirad", email = "aida@lehigh.edu" },
+]
+keywords = [
+    "k-means", "clustering", "fairness", "spectral-clustering",
+    "linear-programming", "cutting-plane", "optimization",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.8",
+    "cupdlpx>=0.2.9",
+    "gurobipy>=11.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Yakun1125/cutLPK"
+Repository = "https://github.com/Yakun1125/cutLPK"
+Issues = "https://github.com/Yakun1125/cutLPK/issues"
+
+[tool.scikit-build]
+cmake.version = ">=3.21"
+cmake.build-type = "Release"
+wheel.packages = ["python_api/cutlpk"]
+
+# Files included in the source distribution (sdist)
+sdist.include = [
+    "python_api/CMakeLists.txt",
+    "python_api/bindings.cpp",
+    "python_api/cutlpk/**/*.py",
+    "src/CMakeLists.txt",
+    "src/config.cmake",
+    "src/*.cpp",
+    "src/*.h",
+    "README.md",
+    "LICENSE.txt",
+]
+
+# Exclude build artifacts and MSVC-specific build dirs from sdist
+sdist.exclude = [
+    "build*/**",
+    "build-msvc/**",
+]

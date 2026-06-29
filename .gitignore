@@ -3,6 +3,7 @@ build/
 **/build/
 **/build-asan/
 **/build-valgrind/
+**/build-msvc/
 
 # CMake artifacts
 CMakeFiles/
