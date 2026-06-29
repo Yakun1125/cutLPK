@@ -13,18 +13,9 @@ bool RoundingHeuristic::run(int maxIterations) {
             Eigen::MatrixXd topk_eigenvectors = computeTopKEigenvectors();
             VectorXdList initial_centroids = generateInitialCentroids(topk_eigenvectors);
             success = runFairLloydWithGurobi(initial_centroids, maxIterations);
-            // clear fairness constraints from gurobi model
-            if (gurobi_model && constraints) {
-                int num_constrs = gurobi_model->get(GRB_IntAttr_NumConstrs);
-                GRBConstr* constrs = gurobi_model->getConstrs();
-                for (int i = 0; i < num_constrs; ++i) {
-                    std::string name = constrs[i].get(GRB_StringAttr_ConstrName);
-                    if (name.find("same_cluster_") == 0 || name.find("diff_cluster_") == 0) {
-                        gurobi_model->remove(constrs[i]);
-                    }
-                }
-                gurobi_model->update();
-                delete[] constrs; // Don't forget to free memory!
+            // clear fairness constraints from solver
+            if (fair_solver && constraints) {
+                fair_solver->removeBranchConstraints();
             }
         } 
         else if (is_spectral_clustering){
@@ -58,24 +49,15 @@ bool RoundingHeuristic::run(int maxIterations) {
 
 void RoundingHeuristic::setConstraints(const std::vector<BranchConstraint>& constr) {
     constraints = &constr; 
-    // if it is fair clustering, we add constraints to the gurobi model
-    if (is_fair_clustering && gurobi_model && x_vars) {
+    // if it is fair clustering, we add constraints via the solver
+    if (is_fair_clustering && fair_solver) {
         for (const auto& bc : *constraints) {
             if (bc.type == BranchType::SAME_CLUSTER) {
-                // X(i,j) = X(i,i) = X(j,j)
-                for (int c = 0; c < k; ++c) {
-                    gurobi_model->addConstr((*x_vars)[bc.i][c] - (*x_vars)[bc.j][c] == 0, 
-                                            "same_cluster_" + std::to_string(bc.i) + "_" + std::to_string(bc.j) + "_c" + std::to_string(c));
-                }
+                fair_solver->addSameClusterConstraint(bc.i, bc.j);
             } else if (bc.type == BranchType::DIFF_CLUSTER) {
-                // X(i,j) = 0
-                for (int c = 0; c < k; ++c) {
-                    gurobi_model->addConstr((*x_vars)[bc.i][c] + (*x_vars)[bc.j][c] <= 1, 
-                                            "diff_cluster_" + std::to_string(bc.i) + "_" + std::to_string(bc.j) + "_c" + std::to_string(c));
-                }
+                fair_solver->addDiffClusterConstraint(bc.i, bc.j);
             }
         }
-        gurobi_model->update();
     }
 }
 
@@ -164,8 +146,8 @@ VectorXdList RoundingHeuristic::generateInitialCentroids(const Eigen::MatrixXd& 
 }
 
 bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centroids, int maxIterations) {  
-    if (!gurobi_model || !x_vars) {
-        std::cerr << "Error: Gurobi model or variables not provided for fair clustering" << std::endl;
+    if (!fair_solver) {
+        std::cerr << "Error: Fair assignment solver not provided for fair clustering" << std::endl;
         return false;
     }
     
@@ -174,12 +156,11 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centr
     VectorXdList current_centroids = initial_centroids;
         std::vector<int> current_assignment(dataPoints.size(), -1);
         
-        int N = dataPoints.size();
+        int N = static_cast<int>(dataPoints.size());
         bool changed;
         
         // Initial assignment using fair clustering
-        FairAssignStatus initial_status = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
-                                        *gurobi_model, *x_vars);
+        FairAssignStatus initial_status = fair_solver->solve(dataPoints, current_centroids, current_assignment);
         
         if (initial_status == FairAssignStatus::INFEASIBLE || initial_status == FairAssignStatus::UNBOUNDED) {
             std::cerr << "Initial fair assignment is infeasible. Cannot proceed with fair Lloyd." << std::endl;
@@ -190,13 +171,9 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centr
         changed = (initial_status == FairAssignStatus::SUCCESS);
         
         double currentWCSS =  computeWCSS(dataPoints, current_centroids, current_assignment);
-        //std::cout << "Initial fair assignment objective: " << currentWCSS << std::endl;
         
         for (int iter = 0; iter < maxIterations && changed; ++iter) {
-            //std::cout << "Fair Lloyd iteration " << iter + 1 << std::endl;
-            
             if (!changed) {
-                //std::cout << "No assignment changes, converged." << std::endl;
                 break;
             }
             
@@ -208,7 +185,6 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centr
             
             // Compute new objective
             currentWCSS = computeWCSS(dataPoints, current_centroids, current_assignment);
-            //std::cout << "Updated centroids, objective: " << currentWCSS << std::endl;
             
             // Check centroid convergence
             double centroidShiftSquared = 0.0;
@@ -222,13 +198,11 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centr
             // Check relative centroid shift
             if (centroidNormSquared > 0 && 
                 centroidShiftSquared <= 1e-6 * centroidNormSquared) {
-                //std::cout << "Centroids converged." << std::endl;
                 break;
             }
             
             // Do fair assignment with new centroids
-            FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, current_centroids, current_assignment, 
-                                           *gurobi_model, *x_vars);
+            FairAssignStatus assign_status = fair_solver->solve(dataPoints, current_centroids, current_assignment);
             
             if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
                 std::cerr << "Fair assignment became infeasible at iteration " << iter << ". Stopping early." << std::endl;
@@ -242,11 +216,9 @@ bool RoundingHeuristic::runFairLloydWithGurobi(const VectorXdList& initial_centr
         // Store final results
         updateCentroids(dataPoints, current_centroids, current_assignment, k);
         currentWCSS = computeWCSS(dataPoints, current_centroids, current_assignment);
-        //std::cout << "Final fair assignment objective: " << currentWCSS << std::endl;
         final_centroids = current_centroids;
         final_assignment = current_assignment;
         
-        //std::cout << "Fair Lloyd completed successfully" << std::endl;
         return true;
         
     } catch (const std::exception& e) {

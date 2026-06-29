@@ -1,4 +1,10 @@
 #include "fair_Lloyd.h"
+#ifdef ENABLE_GUROBI
+#include "fair_assignment_gurobi.h"
+#endif
+#ifdef ENABLE_HIGHS
+#include "fair_assignment_highs.h"
+#endif
 #include <iostream>
 
 int gcd(int a, int b) {
@@ -97,7 +103,7 @@ double find_simplified_fraction_Tau(
 std::vector<double> tau_fairParam_adjustment(const std::vector<int> &groupRatio, double fairness_param, int N, int K)
 {
     std::vector<double> adjusted_factors(groupRatio.size(), 1.0);
-    for (int g = 0; g < groupRatio.size(); g++)
+    for (int g = 0; g < static_cast<int>(groupRatio.size()); g++)
     {
         int numerator = groupRatio[g];
         double target_factor = fairness_param;
@@ -107,296 +113,33 @@ std::vector<double> tau_fairParam_adjustment(const std::vector<int> &groupRatio,
     return adjusted_factors;
 }
 
-std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_buildFairAssignmentModel(GRBEnv &env, int numClusters,
-                                                                                                    int numGroups,
-                                                                                                    const std::vector<std::vector<bool>> &dataGroups,
-                                                                                                    const std::vector<int> &groupRatio,
-                                                                                                    std::vector<double> fairness_param)
+// ---------------------------------------------------------------------------
+// Solver-agnostic fair Lloyd heuristic
+// ---------------------------------------------------------------------------
+std::pair<double, std::vector<int>> runFairKMeans(
+    const VectorXdList& dataPoints, int k, int maxIterations,
+    int random_seed, FairAssignmentSolver& solver)
 {
-    int N = dataGroups.size();
-    // Create an empty model
-    std::unique_ptr<GRBModel> model = std::make_unique<GRBModel>(env);
-    // Create variables x_{i,k}
-    std::vector<std::vector<GRBVar>> x(N, std::vector<GRBVar>(numClusters));
-
-    try
-    {
-
-        for (int i = 0; i < N; ++i)
-        {
-            for (int k = 0; k < numClusters; ++k)
-            {
-                x[i][k] = model->addVar(0.0, 1.0, 0.0, GRB_BINARY,
-                                        "x_" + std::to_string(i) + "_" + std::to_string(k));
-            }
-        }
-
-        // Assignment constraints: each data point assigned to exactly one cluster
-        for (int i = 0; i < N; ++i)
-        {
-            GRBLinExpr sum_xik = 0.0;
-            for (int k = 0; k < numClusters; ++k)
-            {
-                sum_xik += x[i][k];
-            }
-            model->addConstr(sum_xik == 1, "assign_" + std::to_string(i));
-        }
-
-        std::vector<double> normalized_groupRatio(numGroups, 0.0);
-
-        for (int g = 0; g < numGroups; g++)
-        {
-            normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
-            //std::cout<<"ratio: "<<normalized_groupRatio[g]<<std::endl;
-        }
-
-        // Fairness constraints
-        for (int k = 0; k < numClusters; ++k)
-        {
-            // Compute sum_{i=1}^N x_{i,k}
-            GRBLinExpr sum_xik = 0.0;
-            for (int i = 0; i < N; ++i)
-            {
-                sum_xik += x[i][k];
-            }
-
-            model->addConstr(sum_xik >= 1); // make sure we have k clusters
-
-            for (int g = 0; g < numGroups; ++g)
-            {
-                // sum_{i in group g} x_{i,k}
-                GRBLinExpr sum_xikg = 0.0;
-                for (int i = 0; i < N; ++i)
-                {
-                    if (dataGroups[i][g])
-                    {
-                        sum_xikg += x[i][k];
-                    }
-                }
-
-                if (std::abs(fairness_param[g] - 1.0) <= 1e-6)
-                {
-                    model->addConstr(sum_xikg == (normalized_groupRatio[g] * fairness_param[g]) * sum_xik,
-                                     "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
-                }
-                else
-                {
-                    // Lower bound constraint
-                    model->addConstr(sum_xikg >= (normalized_groupRatio[g] * fairness_param[g]) * sum_xik,
-                                     "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
-                    // Upper bound constraint
-                    model->addConstr(sum_xikg <= (normalized_groupRatio[g] / fairness_param[g]) * sum_xik,
-                                     "fair_ub_k" + std::to_string(k) + "_g" + std::to_string(g));
-                }
-            }
-        }
-        // Feasibility will be checked on first assignment solve
-    }
-    catch (GRBException e)
-    {
-        std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
-        std::cout << e.getMessage() << std::endl;
-    }
-    catch (...)
-    {
-        std::cout << "Unknown exception during optimization." << std::endl;
-    }
-
-    return std::make_pair(std::move(model), x);
-}
-
-std::pair<std::unique_ptr<GRBModel>, std::vector<std::vector<GRBVar>>> GRB_buildTauFairAssignmentModel(GRBEnv &env, int numClusters,
-                                                                                                       int numGroups,
-                                                                                                       const std::vector<std::vector<bool>> &dataGroups,
-                                                                                                       const std::vector<int> &groupRatio,
-                                                                                                       std::vector<double> fairness_param)
-{
-    int N = dataGroups.size();
-    // Create an empty model
-    std::unique_ptr<GRBModel> model = std::make_unique<GRBModel>(env);
-    // Create variables x_{i,k}
-    std::vector<std::vector<GRBVar>> x(N, std::vector<GRBVar>(numClusters));
-
-    try
-    {
-
-        for (int i = 0; i < N; ++i)
-        {
-            for (int k = 0; k < numClusters; ++k)
-            {
-                x[i][k] = model->addVar(0.0, 1.0, 0.0, GRB_CONTINUOUS,
-                                        "x_" + std::to_string(i) + "_" + std::to_string(k));
-            }
-        }
-
-        // Assignment constraints: each data point assigned to exactly one cluster
-        for (int i = 0; i < N; ++i)
-        {
-            GRBLinExpr sum_xik = 0.0;
-            for (int k = 0; k < numClusters; ++k)
-            {
-                sum_xik += x[i][k];
-            }
-            model->addConstr(sum_xik == 1, "assign_" + std::to_string(i));
-        }
-
-        std::vector<double> normalized_groupRatio(numGroups, 0.0);
-
-        for (int g = 0; g < numGroups; g++)
-        {
-            normalized_groupRatio[g] = double(groupRatio[g]) / double(N);
-            // std::cout<<"ratio: "<<normalized_groupRatio[g]<<std::endl;
-        }
-
-        // Fairness constraints
-        for (int k = 0; k < numClusters; ++k)
-        {
-            // Compute sum_{i=1}^N x_{i,k}
-            GRBLinExpr sum_xik = 0.0;
-            for (int i = 0; i < N; ++i)
-            {
-                sum_xik += x[i][k];
-            }
-
-            model->addConstr(sum_xik >= 1); // make sure we have k clusters
-
-            for (int g = 0; g < numGroups; ++g)
-            {
-                // sum_{i in group g} x_{i,k}
-                GRBLinExpr sum_xikg = 0.0;
-                for (int i = 0; i < N; ++i)
-                {
-                    if (dataGroups[i][g])
-                    {
-                        sum_xikg += x[i][k];
-                    }
-                }
-
-                model->addConstr(sum_xikg >= groupRatio[g] * fairness_param[g],
-                                 "fair_lb_k" + std::to_string(k) + "_g" + std::to_string(g));
-                // Upper bound: redundant for IP, but required for TU integrality of LP relaxation
-                model->addConstr(sum_xikg <= groupRatio[g],
-                                 "fair_ub_k" + std::to_string(k) + "_g" + std::to_string(g));
-            }
-        }
-        // Feasibility verified by constraint structure (totally unimodular LP)
-    }
-    catch (GRBException e)
-    {
-        std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
-        std::cout << e.getMessage() << std::endl;
-    }
-    catch (...)
-    {
-        std::cout << "Unknown exception during optimization." << std::endl;
-    }
-
-    return std::make_pair(std::move(model), x);
-}
-
-FairAssignStatus GRB_fairAssignClusters(const VectorXdList &dataPoints, VectorXdList &centroids, std::vector<int> &assignment,
-                            GRBModel &model, std::vector<std::vector<GRBVar>> &x)
-{
-    // Number of data points
-    int N = dataPoints.size();
-
-    // Number of clusters
-    int numClusters = centroids.size();
-
-    try
-    {
-
-        // Set objective function: minimize total clustering cost
-        GRBLinExpr obj = 0.0;
-        for (int i = 0; i < N; ++i)
-        {
-            for (int k = 0; k < numClusters; ++k)
-            {
-                double dist = (dataPoints[i] - centroids[k]).squaredNorm();
-                obj += dist * x[i][k];
-            }
-        }
-        model.setObjective(obj, GRB_MINIMIZE);
-
-        // Optimize model
-        model.optimize();
-
-        // Check if optimal solution was found
-        if (model.get(GRB_IntAttr_Status) == GRB_OPTIMAL)
-        {
-            bool changed = false;
-            // Update assignment
-            for (int i = 0; i < N; ++i)
-            {
-                for (int k = 0; k < numClusters; ++k)
-                {
-                    if (x[i][k].get(GRB_DoubleAttr_X) > 0.5)
-                    {
-                        if (assignment[i] != k)
-                        {
-                            assignment[i] = k;
-                            changed = true;
-                        }
-                        break;
-                    }
-                }
-            }
-            return changed ? FairAssignStatus::SUCCESS : FairAssignStatus::CONVERGED;
-        }
-        else if (model.get(GRB_IntAttr_Status) == GRB_INF_OR_UNBD)
-        {
-            std::cout << "Model is infeasible or unbounded." << std::endl;
-            return FairAssignStatus::UNBOUNDED;
-        }
-        else if (model.get(GRB_IntAttr_Status) == GRB_INFEASIBLE)
-        {
-            std::cout << "Model is infeasible." << std::endl;
-            return FairAssignStatus::INFEASIBLE;
-        }
-        else
-        {
-            // No optimal solution found
-            std::cout << "No optimal solution found." << std::endl;
-            return FairAssignStatus::ERROR;
-        }
-    }
-    catch (GRBException e)
-    {
-        std::cout << "Gurobi error code: " << e.getErrorCode() << std::endl;
-        std::cout << e.getMessage() << std::endl;
-        return FairAssignStatus::ERROR;
-    }
-    catch (...)
-    {
-        std::cout << "Unknown exception during optimization." << std::endl;
-        return FairAssignStatus::ERROR;
-    }
-}
-
-std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints, int k, int maxIterations,
-                                                  int random_seed, GRBModel &model, std::vector<std::vector<GRBVar>> &x)
-{
-    int n = dataPoints.size();
+    int n = static_cast<int>(dataPoints.size());
     // Initialize centroids with k-means++
     VectorXdList centroids = initializeCentroidsPlusPlus(dataPoints, k, random_seed);
     std::vector<int> assignment(n, -1);
     
     // Start with a FAIR assignment
-    FairAssignStatus init_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
+    FairAssignStatus init_status = solver.solve(dataPoints, centroids, assignment);
     if (init_status == FairAssignStatus::INFEASIBLE || init_status == FairAssignStatus::UNBOUNDED) {
         std::cerr << "Initial fair assignment infeasible or unbounded. Stopping." << std::endl;
         return std::make_pair(kInfinity, assignment);
     }
     double currentWCSS = computeWCSS(dataPoints, centroids, assignment);
     double prevWCSS = currentWCSS;
-    int lloyd_iters = 0;
 
     for (int iter = 0; iter < maxIterations; ++iter)
     {
         // Update centroids from current assignment
         updateCentroids(dataPoints, centroids, assignment, k);
         // Fair assignment with new centroids
-        FairAssignStatus assign_status = GRB_fairAssignClusters(dataPoints, centroids, assignment, model, x);
+        FairAssignStatus assign_status = solver.solve(dataPoints, centroids, assignment);
         if (assign_status == FairAssignStatus::INFEASIBLE || assign_status == FairAssignStatus::UNBOUNDED) {
             std::cerr << "Fair assignment became infeasible during Lloyd iteration. Stopping early." << std::endl;
             break;
@@ -405,7 +148,6 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
             // CONVERGED: assignment unchanged
             break;
         }
-        lloyd_iters++;
         currentWCSS = computeWCSS(dataPoints, centroids, assignment);
         // Converge when objective stops decreasing
         if (currentWCSS >= prevWCSS)
@@ -415,7 +157,34 @@ std::pair<double, std::vector<int>> runFairKMeans(const VectorXdList &dataPoints
         prevWCSS = currentWCSS;
     }
 
-    // std::cout << "  Fair Lloyd converged after " << lloyd_iters << " iterations (seed " << random_seed << "), objective " << currentWCSS << std::endl;
-
     return std::make_pair(currentWCSS, assignment);
+}
+
+// ---------------------------------------------------------------------------
+// Factory: create the configured fair assignment solver
+// ---------------------------------------------------------------------------
+std::unique_ptr<FairAssignmentSolver> createFairAssignmentSolver(
+    const std::string& solverName)
+{
+    if (solverName == "highs") {
+#ifdef ENABLE_HIGHS
+        return std::make_unique<HiGHSFairAssignmentSolver>();
+#else
+        throw std::runtime_error(
+            "HiGHS solver requested but cutLPK was built without HiGHS support. "
+            "Rebuild with -DENABLE_HIGHS=ON or set fair_assignment_solver=\"gurobi\".");
+#endif
+    } else if (solverName == "gurobi") {
+#ifdef ENABLE_GUROBI
+        return std::make_unique<GurobiFairAssignmentSolver>();
+#else
+        throw std::runtime_error(
+            "Gurobi solver requested but cutLPK was built without Gurobi support. "
+            "Rebuild with -DENABLE_GUROBI=ON or set fair_assignment_solver=\"highs\".");
+#endif
+    } else {
+        throw std::runtime_error(
+            "Unknown fair assignment solver: '" + solverName +
+            "'. Supported: 'highs', 'gurobi'.");
+    }
 }

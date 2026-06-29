@@ -75,6 +75,7 @@ static parameters dict_to_params(py::dict d, int K) {
     // --- Fair clustering ---
     if (d.contains("fairness_type"))           p.fair_clustering_fairness_type = py::str(d["fairness_type"]);
     if (d.contains("fairness_param"))          p.fair_clustering_fairness_param = py::float_(d["fairness_param"]);
+    if (d.contains("fair_assignment_solver"))  p.fair_assignment_solver = py::str(d["fair_assignment_solver"]);
 
     // --- Spectral clustering ---
     if (d.contains("is_spectral"))             p.is_spectral_clustering = py::bool_(d["is_spectral"]);

@@ -27,6 +27,14 @@ set(CUTLPK_CORE_SOURCES
     cutLPK.cpp
 )
 
+# Conditionally add solver-specific sources
+if(ENABLE_GUROBI)
+    list(APPEND CUTLPK_CORE_SOURCES fair_assignment_gurobi.cpp)
+endif()
+if(ENABLE_HIGHS)
+    list(APPEND CUTLPK_CORE_SOURCES fair_assignment_highs.cpp)
+endif()
+
 add_library(cutlpk_core STATIC ${CUTLPK_CORE_SOURCES})
 set_target_properties(cutlpk_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(cutlpk_core PUBLIC cxx_std_17)
@@ -153,4 +161,84 @@ if(ENABLE_GUROBI)
     message(STATUS "Gurobi enabled: ${GUROBI_CXX_LIB}; ${GUROBI_C_LIB}")
 else()
     message(STATUS "Gurobi support disabled")
+endif()
+
+######################
+# HiGHS
+######################
+if(ENABLE_HIGHS)
+    # --- Resolve HIGHS_ROOT ---
+    if(NOT HIGHS_ROOT AND DEFINED ENV{HIGHS_ROOT})
+        set(HIGHS_ROOT "$ENV{HIGHS_ROOT}")
+    endif()
+    if(NOT HIGHS_ROOT)
+        set(HIGHS_ROOT "/usr/local" CACHE PATH "Path to HiGHS installation or source tree")
+    endif()
+
+    # --- Include directories (handle both installed and build-tree layouts) ---
+    # Installed layout:  ${HIGHS_ROOT}/include/highs/Highs.h
+    # Source layout:     ${HIGHS_ROOT}/highs/Highs.h
+    # Build dir (gen):   ${HIGHS_ROOT}/build/HConfig.h or ${HIGHS_ROOT}/build-msvc/HConfig.h
+    set(_highs_include_candidates
+        "${HIGHS_ROOT}/include"
+        "${HIGHS_ROOT}/include/highs"
+        "${HIGHS_ROOT}/highs"
+        "${HIGHS_ROOT}"
+    )
+    foreach(_dir ${_highs_include_candidates})
+        if(EXISTS "${_dir}/Highs.h" OR EXISTS "${_dir}/highs/Highs.h")
+            list(APPEND _highs_inc_dirs "${_dir}")
+        endif()
+    endforeach()
+
+    # Also add build directory for generated HConfig.h
+    set(_highs_build_candidates
+        "${HIGHS_ROOT}/build"
+        "${HIGHS_ROOT}/build-msvc"
+        "${HIGHS_ROOT}/build/Release"
+        "${HIGHS_ROOT}/build-msvc/Release"
+    )
+    foreach(_dir ${_highs_build_candidates})
+        if(EXISTS "${_dir}/HConfig.h")
+            list(APPEND _highs_inc_dirs "${_dir}")
+            break()
+        endif()
+    endforeach()
+
+    if(NOT _highs_inc_dirs)
+        message(WARNING "Could not locate Highs.h. Set HIGHS_ROOT to the HiGHS source or install tree.")
+    endif()
+
+    target_include_directories(cutlpk_core PUBLIC ${_highs_inc_dirs})
+
+    # --- Library search ---
+    set(_highs_lib_candidates
+        "${HIGHS_ROOT}/lib"
+        "${HIGHS_ROOT}/build/lib"
+        "${HIGHS_ROOT}/build/Release/bin"
+        "${HIGHS_ROOT}/build-msvc/Release/bin"
+        "${HIGHS_ROOT}/build-msvc/Release/lib"
+        "${HIGHS_ROOT}/build/lib/Release"
+    )
+
+    if(WIN32)
+        find_library(HIGHS_LIB NAMES highs libhighs
+            PATHS ${_highs_lib_candidates}
+            NO_DEFAULT_PATH)
+    else()
+        find_library(HIGHS_LIB NAMES highs libhighs
+            PATHS ${_highs_lib_candidates}
+            NO_DEFAULT_PATH)
+    endif()
+
+    if(NOT HIGHS_LIB)
+        message(FATAL_ERROR "HiGHS library not found. Build HiGHS first or set HIGHS_ROOT.")
+    endif()
+
+    target_link_libraries(cutlpk_core PUBLIC ${HIGHS_LIB})
+    target_compile_definitions(cutlpk_core PUBLIC ENABLE_HIGHS)
+    message(STATUS "HiGHS enabled: ${HIGHS_LIB}")
+    message(STATUS "HiGHS include: ${_highs_inc_dirs}")
+else()
+    message(STATUS "HiGHS support disabled")
 endif()

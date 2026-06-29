@@ -55,6 +55,7 @@ class FairKMeans:
     fairness_param: float = 0.99
     solver: str = "cupdlpx"
     solver_warm_start: bool = True
+    fair_assignment_solver: str = "highs"  # "highs" (default, MIT) or "gurobi" (deprecated)
     max_cuts_init: int = 15_000_000
     max_cuts_per_iter: int = 30_000_000
     max_cuts_added_iter: int = 10_000_000
@@ -128,6 +129,7 @@ class FairKMeans:
             raise ValueError("fairness_param must be in (0, 1]")
         return {
             "fairness_type": self.fairness_type, "fairness_param": self.fairness_param,
+            "fair_assignment_solver": self.fair_assignment_solver,
             "solver": self.solver, "solver_warm_start": self.solver_warm_start,
             "max_cuts_init": self.max_cuts_init, "max_cuts_per_iter": self.max_cuts_per_iter,
             "max_cuts_added_iter": self.max_cuts_added_iter, "max_separation_size": self.max_separation_size,
@@ -158,6 +160,14 @@ class FairKMeans:
         }
 
     def fit(self, X: Any, **override_params: Any) -> "FairKMeans":
+        if self.fair_assignment_solver == "gurobi":
+            import warnings
+            warnings.warn(
+                "Gurobi is deprecated as fair assignment solver. "
+                "Gurobi's license prohibits redistribution on PyPI. "
+                "Please use fair_assignment_solver='highs' (default). "
+                "Gurobi support will be removed in a future version.",
+                DeprecationWarning, stacklevel=2)
         data = np.asarray(X, dtype=np.float64)
         if data.ndim != 2:
             raise ValueError("Input data must be a 2D array-like structure")
@@ -186,7 +196,7 @@ class FairKMeans:
 
     def get_params(self, deep: bool = False) -> Dict[str, Any]:
         return {k: getattr(self, k) for k in [
-            "n_clusters", "groups", "fairness_type", "fairness_param",
+            "n_clusters", "groups", "fairness_type", "fairness_param", "fair_assignment_solver",
             "solver", "solver_warm_start", "max_cuts_init", "max_cuts_per_iter",
             "max_cuts_added_iter", "max_separation_size", "max_active_cuts_size",
             "max_iter", "num_iter_no_improve", "exact_separation", "remove_inactive_cuts",

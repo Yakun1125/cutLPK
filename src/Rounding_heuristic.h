@@ -1,11 +1,11 @@
 #pragma once
 #include "Lloyd.h"
 #include "fair_Lloyd.h"
+#include "fair_assignment_solver.h"
 #include "Utils_Struct.h"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <Eigen/Eigenvalues>
-#include "gurobi_c++.h"
 
 class RoundingHeuristic {
 private:
@@ -22,9 +22,8 @@ private:
     // Constraints (for constrained clustering)
     const std::vector<BranchConstraint>* constraints = nullptr;
 
-    // Gurobi model (references to existing model)
-    GRBModel* gurobi_model;
-    std::vector<std::vector<GRBVar>>* x_vars;
+    // Fair assignment solver (replaces Gurobi model)
+    FairAssignmentSolver* fair_solver = nullptr;
     
     // Results
     VectorXdList final_centroids;
@@ -33,30 +32,28 @@ private:
     bool is_infeasible = false;
 
 public:
-    // RoundingHeuristic() = default;
-
-    // Constructor for fair clustering (using existing Gurobi model)
+    // Constructor for fair clustering (using FairAssignmentSolver)
     RoundingHeuristic(const VectorXdList& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, Eigen::MatrixXd& Xsol,
-                      GRBModel* model, std::vector<std::vector<GRBVar>>* x_vars)
+                      FairAssignmentSolver* solver)
         : dataPoints(dataPoints), dis_matrix(dis_matrix), Xsol(Xsol), k(k), is_fair_clustering(true), 
-          gurobi_model(model), x_vars(x_vars) {}
+          fair_solver(solver) {}
 
     // Constructor for regular clustering
     RoundingHeuristic(const VectorXdList& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, 
                       Eigen::MatrixXd& Xsol)
         : dataPoints(dataPoints), dis_matrix(dis_matrix), Xsol(Xsol), k(k), is_fair_clustering(false), 
-          gurobi_model(nullptr), x_vars(nullptr) {}
+          fair_solver(nullptr) {}
 
     // constructor for spectral clustering, leave dataPoints empty
     RoundingHeuristic(const Eigen::MatrixXd& dis_matrix, int k, Eigen::MatrixXd& Xsol)
     : dataPoints(VectorXdList()), dis_matrix(dis_matrix), Xsol(Xsol), k(k), 
-          is_fair_clustering(false), is_spectral_clustering(true), gurobi_model(nullptr), x_vars(nullptr) {}
+          is_fair_clustering(false), is_spectral_clustering(true), fair_solver(nullptr) {}
 
     // Constructor for regular clustering with constraints
     RoundingHeuristic(const VectorXdList& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, 
                       Eigen::MatrixXd& Xsol, const std::vector<BranchConstraint>& constraints)
         : dataPoints(dataPoints), dis_matrix(dis_matrix), Xsol(Xsol), k(k), is_fair_clustering(false), 
-          constraints(&constraints), gurobi_model(nullptr), x_vars(nullptr) {}
+          constraints(&constraints), fair_solver(nullptr) {}
 
     // Set solution matrix
     void setSolutionMatrix(Eigen::MatrixXd& X) { Xsol = X; }

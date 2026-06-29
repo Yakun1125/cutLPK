@@ -229,39 +229,24 @@ FairKMeansResult solveFairKMeans(
     if (verbose) {
         std::cout << "Running fair clustering with K = " << K << " and " << numGroups << " groups" << std::endl;
         std::cout << "Fairness type: " << params.fair_clustering_fairness_type << std::endl;
+        std::cout << "Fair assignment solver: " << params.fair_assignment_solver << std::endl;
     }
 
-    // Setup Gurobi environment for fair assignment subproblems.
-    GRBEnv env = GRBEnv(true);
-    try {
-        env.set(GRB_IntParam_OutputFlag, 0);
-        // Gurobi reads gurobi.lic, GRB_LICENSE_FILE, and GUROBI_HOME during start().
-        env.start();
-    } catch (GRBException& e) {
-        throw std::runtime_error("Failed to start Gurobi environment: " + e.getMessage());
-    }
+    // Create fair assignment solver via factory
+    std::unique_ptr<FairAssignmentSolver> fairSolver =
+        createFairAssignmentSolver(params.fair_assignment_solver);
 
     // Build fair assignment model and adjust fairness parameters
-    std::unique_ptr<GRBModel> model;
-    std::vector<std::vector<GRBVar>> x_vars;
     std::vector<double> fairness_param_adjusted;
 
     if (params.fair_clustering_fairness_type == "alpha") {
         fairness_param_adjusted = std::vector<double>(numGroups, params.fair_clustering_fairness_param);
-        auto result = GRB_buildFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
-        model = std::move(result.first);
-        x_vars = std::move(result.second);
+        fairSolver->buildAlphaModel(N, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
     } else if (params.fair_clustering_fairness_type == "tau") {
         fairness_param_adjusted = tau_fairParam_adjustment(groupRatio, params.fair_clustering_fairness_param, N, K);
-        auto result = GRB_buildTauFairAssignmentModel(env, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
-        model = std::move(result.first);
-        x_vars = std::move(result.second);
+        fairSolver->buildTauModel(N, K, numGroups, dataGroups, groupRatio, fairness_param_adjusted);
     } else {
         throw std::runtime_error("Unknown fairness type: " + params.fair_clustering_fairness_type);
-    }
-
-    if (!model) {
-        throw std::runtime_error("Failed to create Gurobi model for fair assignment.");
     }
 
     LPK fairlp;
@@ -276,7 +261,7 @@ FairKMeansResult solveFairKMeans(
             double clusteringCost;
             std::vector<int> lloydAssignment;
             std::tie(clusteringCost, lloydAssignment) = runFairKMeans(dataPoints, K, 100000, 
-                                                                       params.random_seed + i, *model, x_vars);
+                                                                       params.random_seed + i, *fairSolver);
 
             if (bestClusteringCost > clusteringCost) {
                 bestClusteringCost = clusteringCost;
@@ -335,7 +320,7 @@ FairKMeansResult solveFairKMeans(
     }
 
     fairlp.setupLPK();
-    RoundingHeuristic roundingHeuristic(dataPoints, dis_matrix, K, Xsol, model.get(), &x_vars);
+    RoundingHeuristic roundingHeuristic(dataPoints, dis_matrix, K, Xsol, fairSolver.get());
     cutLPK_info.upper_bound = initialLloydObj;
 
     ICPStatus retcode = iterative_cutting_plane_solver(

@@ -154,6 +154,7 @@ struct parameters {
 	std::string fair_clustering_fairness_type;
 	double fair_clustering_fairness_param;
 	std::string fair_clustering_group_file;
+	std::string fair_assignment_solver;  // "highs" (default) or "gurobi"
 	bool is_spectral_clustering;
     bool heuristic_only;
 	    // Constructor with default values
@@ -200,6 +201,7 @@ struct parameters {
 		fair_clustering_fairness_type(""),
 		fair_clustering_fairness_param(1.0),
 		fair_clustering_group_file(""),
+		fair_assignment_solver("highs"),
         is_spectral_clustering(false),
         heuristic_only(false)
     {}
