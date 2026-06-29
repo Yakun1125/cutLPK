@@ -36,3 +36,4 @@ set_target_properties(_cutlpk PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/cutlpk
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/cutlpk
 )
+install(TARGETS _cutlpk LIBRARY DESTINATION cutlpk)
