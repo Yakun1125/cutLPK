@@ -37,3 +37,24 @@ set_target_properties(_cutlpk PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/cutlpk
 )
 install(TARGETS _cutlpk LIBRARY DESTINATION cutlpk)
+
+# Bundle libcupdlpx.so from the source build into the wheel
+# (pip-installed cupdlpx only ships the Python extension, not the standalone .so)
+if(EXISTS "${CUPDLPX_BUILD_DIR}/libcupdlpx.so")
+    install(FILES "${CUPDLPX_BUILD_DIR}/libcupdlpx.so" DESTINATION cutlpk)
+elseif(EXISTS "${CUPDLPX_BUILD_DIR}/cupdlpx.so")
+    install(FILES "${CUPDLPX_BUILD_DIR}/cupdlpx.so" DESTINATION cutlpk RENAME libcupdlpx.so)
+endif()
+
+# Also bundle PSLP dependency if present
+if(EXISTS "${CUPDLPX_BUILD_DIR}/_deps/pslp-build/Release/libPSLP.so")
+    install(FILES "${CUPDLPX_BUILD_DIR}/_deps/pslp-build/Release/libPSLP.so" DESTINATION cutlpk)
+endif()
+
+# Set rpath so _cutlpk finds:
+#  - bundled libcupdlpx.so, libPSLP.so in its own directory ($ORIGIN)
+#  - libgurobi130.so from gurobipy/.libs/
+set_target_properties(_cutlpk PROPERTIES
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/../gurobipy/.libs"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)

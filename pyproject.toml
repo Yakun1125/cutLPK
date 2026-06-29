@@ -25,7 +25,6 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -41,7 +40,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.21",
     "scipy>=1.8",
-    "cupdlpx>=0.2.9",
     "gurobipy>=11.0",
 ]
 
@@ -53,6 +51,7 @@ Issues = "https://github.com/Yakun1125/cutLPK/issues"
 [tool.scikit-build]
 cmake.version = ">=3.21"
 cmake.build-type = "Release"
+cmake.source-dir = "python_api"
 wheel.packages = ["python_api/cutlpk"]
 
 # Files included in the source distribution (sdist)
