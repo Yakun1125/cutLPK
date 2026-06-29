@@ -46,16 +46,6 @@ jobs:
 
   # ------------------------------------------------------------------
   # Job 2 — Linux wheel (CUDA + Gurobi required at build time)
-  #
-  # GitHub-hosted runners do NOT have Gurobi or CUDA pre-installed.
-  # For 0.0.1, build wheels manually on Colab:
-  #   git clone https://github.com/Yakun1125/cutLPK && cd cutLPK
-  #   pip install build cupdlpx gurobipy && python -m build --wheel
-  #   twine upload dist/*.whl
-  #
-  # To enable this job later: use a self-hosted runner with CUDA 12.4
-  # and Gurobi 12 installed at /opt/gurobi, then set the repository
-  # variable CI_BUILD_WHEELS=1.
   # ------------------------------------------------------------------
   wheel-linux:
     needs: sdist
