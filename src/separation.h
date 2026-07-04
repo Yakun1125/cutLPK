@@ -11,7 +11,8 @@ void separation_scheme(
     int max_T, 
     int N, 
     int maxSize, 
-    double cuts_vio_tol
+    double cuts_vio_tol,
+    double time_limit_seconds
 );
 
 void separation_scheme_top_k(
@@ -21,7 +22,8 @@ void separation_scheme_top_k(
     int N, 
     int maxSize, 
     double cuts_vio_tol,
-    int k_branching
+    int k_branching,
+    double time_limit_seconds
 );
 
 

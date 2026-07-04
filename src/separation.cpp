@@ -21,11 +21,19 @@ void separation_scheme(
     int max_T, 
     int N, 
     int maxSize, 
-    double cuts_vio_tol
+    double cuts_vio_tol,
+    double time_limit_seconds
 ) {
 	int max_list_size = 0;
-#pragma omp parallel for shared(violated_cuts, max_list_size)
+    auto start_time = std::chrono::steady_clock::now();
+#pragma omp parallel for shared(violated_cuts, max_list_size, start_time, time_limit_seconds)
 	for (int source = 0; source < N; ++source) {
+        // Check time limit at source level — skip remaining sources if time expired
+        {
+            auto now = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed = now - start_time;
+            if (elapsed.count() >= time_limit_seconds) continue;
+        }
 		for (int j = 0; j < N; ++j) {
 			if (j != source) {
 				std::vector<int> chain = { j };
@@ -230,7 +238,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             violation_size = 0;
 
             //separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, 2);
-            separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol);
+            separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time);
 
             for (int i = 0; i < max_T - 1; ++i) {
                 violation_size += violated_cuts[i].size();
@@ -248,7 +256,7 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             } else if(params.cutting_plane_exact_separation) {
                 // do exact separation
                 // std::cout<<"No violated cuts found with current max_T = "<<max_T<<". start search top K."<<std::endl;
-                separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, max_T + 1);
+                separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, max_T + 1, params.cutting_plane_max_separation_time);
                 //exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
                 for (int i = 0; i < max_T - 1; ++i) {
                     violation_size += violated_cuts[i].size();
@@ -443,9 +451,11 @@ void separation_scheme_top_k(
     int N, 
     int maxSize, 
     double cuts_vio_tol,
-    int k_branching  // Number of top nodes to consider at each step
+    int k_branching,  // Number of top nodes to consider at each step
+    double time_limit_seconds
 ) {
     int max_list_size = 0;
+    auto start_time = std::chrono::steady_clock::now();
     
     // Structure to hold potential extensions with their costs
     struct NodeExtension {
@@ -463,8 +473,14 @@ void separation_scheme_top_k(
     int threads_to_use = std::max(1, available_threads - 2);
     omp_set_num_threads(threads_to_use);
 
-#pragma omp parallel for shared(violated_cuts, max_list_size)
+#pragma omp parallel for shared(violated_cuts, max_list_size, start_time, time_limit_seconds)
     for (int source = 0; source < N; ++source) {
+        // Check time limit at source level — skip remaining sources if time expired
+        {
+            auto now = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed = now - start_time;
+            if (elapsed.count() >= time_limit_seconds) continue;
+        }
         for (int j = 0; j < N; ++j) {
             if (j != source) {
                 // Initialize with single node chain
