@@ -463,6 +463,20 @@ SpectralKMeansResult solveSpectralKMeans(
         result.cut_info.retcode = static_cast<int>(ICPStatus::SUCCESS);
         result.icp_status = ICPStatus::SUCCESS;
         result.best_solution = Spectral_Xsol;
+
+        // Write to output file
+        if (!params.cutting_plane_output_file.empty() && params.cutting_plane_output_level > 0) {
+            std::ofstream file(params.cutting_plane_output_file, std::ios::app);
+            if (file.is_open()) {
+                file << "cutLPK return code: " << result.cut_info.retcode << std::endl;
+                file << "Spectral heuristic objective: " << std::fixed << std::setprecision(8) << spectralObjective << std::endl;
+                file << "Final lower bound: " << std::fixed << std::setprecision(8) << result.cut_info.lower_bound << std::endl;
+                file << "Final upper bound: " << std::fixed << std::setprecision(8) << result.cut_info.upper_bound << std::endl;
+                file << "Final optimality gap: " << std::fixed << std::setprecision(8) << result.cut_info.optimality_gap << std::endl;
+                file << "Optimal solution found by spectral heuristic." << std::endl;
+                file.close();
+            }
+        }
         return result;
     }
     
