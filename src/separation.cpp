@@ -41,7 +41,9 @@ void separation_scheme(
 				double current_cost = -Xsol(source, source) + Xsol(source, j);
 
 				for (int size = 2; size <= max_T; ++size) {
-					if (max_list_size >= maxSize) break; // Early exit check
+                    // Synchronized read of max_list_size for early exit
+                    #pragma omp flush(max_list_size)
+					if (max_list_size >= maxSize) break;
 
 					int best_next_node = -1;
 					double max_next_cost = -std::numeric_limits<double>::infinity();
@@ -65,6 +67,8 @@ void separation_scheme(
 						}
 					}
 
+                    // Synchronized read before the conditional
+                    #pragma omp flush(max_list_size)
 					if (best_next_node != -1 && max_list_size < maxSize) {
 						if (max_next_cost > cuts_vio_tol && potential_chain.size() > 1) {
 #pragma omp critical
@@ -105,7 +109,13 @@ void extend_chain(
         return; // stop recursion if time limit exceeded
     }
 
-    if (chain.size() >= max_T || max_list_size >= max_init) {
+    // Synchronized read of max_list_size (max_list_size is a reference; critical required)
+    int current_list_size;
+    #pragma omp critical
+    {
+        current_list_size = max_list_size;
+    }
+    if (chain.size() >= max_T || current_list_size >= max_init) {
         return;
     }
 

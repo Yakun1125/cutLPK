@@ -46,8 +46,17 @@ public:
 
     // constructor for spectral clustering, leave dataPoints empty
     RoundingHeuristic(const Eigen::MatrixXd& dis_matrix, int k, Eigen::MatrixXd& Xsol)
-    : dataPoints(VectorXdList()), dis_matrix(dis_matrix), Xsol(Xsol), k(k), 
+    : dataPoints(getEmptyDataPoints()), dis_matrix(dis_matrix), Xsol(Xsol), k(k), 
           is_fair_clustering(false), is_spectral_clustering(true), fair_solver(nullptr) {}
+
+private:
+    // Sentinel empty vector for spectral constructor — avoids binding a reference to a temporary
+    static const VectorXdList& getEmptyDataPoints() {
+        static const VectorXdList empty;
+        return empty;
+    }
+
+public:
 
     // Constructor for regular clustering with constraints
     RoundingHeuristic(const VectorXdList& dataPoints, const Eigen::MatrixXd& dis_matrix, int k, 

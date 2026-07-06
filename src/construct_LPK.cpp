@@ -8,7 +8,6 @@ void constructLPK(LPK& lp, Eigen::MatrixXd& dis_matrix, int N, int K) {
 	lp.varLb = std::vector<double>(numVars, 0.0);
 	lp.varUb = std::vector<double>(numVars, 1.0);
 	lp.objCoef = std::vector<double>(numVars, 0.0);
-	Eigen::SparseMatrix<double, Eigen::ColMajor> ConsMatrix;// constraint matrix
 	int index = 0; // index mapping logic is (i,j) j>i index = i*(2*N-i+1)/2+j-i
 	for (int i = 0; i < N; ++i) {
 		for (int j = i; j < N; ++j) {
@@ -51,7 +50,6 @@ void constructSpectralLPK(LPK& lp, Eigen::MatrixXd& L, int N, int K){
 	lp.varLb = std::vector<double>(numVars, 0.0);
 	lp.varUb = std::vector<double>(numVars, 1.0);
 	lp.objCoef = std::vector<double>(numVars, 0.0);
-	Eigen::SparseMatrix<double, Eigen::ColMajor> ConsMatrix;// constraint matrix
 	int index = 0; // index mapping logic is (i,j) j>i index = i*(2*N-i+1)/2+j-i
 	for (int i = 0; i < N; ++i) {
 		for (int j = i; j < N; ++j) {
