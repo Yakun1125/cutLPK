@@ -54,13 +54,13 @@ class SpectralKMeans:
     max_cuts_init : int
         Maximum inequalities in the initial LP (default 15 000 000).
     max_cuts_per_iter : int
-        Maximum total cuts in the LP at any iteration (default 30 000 000).
+        Maximum total cuts in the LP at any iteration (default 100 000 000).
     max_cuts_added_iter : int
         Maximum cuts added in a single iteration (default 10 000 000).
     max_separation_size : int
         Maximum cuts examined during separation (default 15 000 000).
     max_active_cuts_size : int
-        Maximum active cuts retained (default 30 000 000).
+        Maximum active cuts retained (default 100 000 000).
 
     Cutting-plane – algorithm control
     ---------------------------------
@@ -68,7 +68,7 @@ class SpectralKMeans:
         Maximum cutting-plane iterations (default 3000).
     num_iter_no_improve : int
         Stop if gap does not improve for this many consecutive iterations
-        (default 2).
+        (default 1 000 000 — effectively disabled).
     exact_separation : bool
         Exact (greedy) vs heuristic separation (default True).
     remove_inactive_cuts : bool
@@ -158,14 +158,14 @@ class SpectralKMeans:
 
     # ---- cut management ----
     max_cuts_init: int = 15_000_000
-    max_cuts_per_iter: int = 30_000_000
+    max_cuts_per_iter: int = 100_000_000
     max_cuts_added_iter: int = 10_000_000
     max_separation_size: int = 15_000_000
-    max_active_cuts_size: int = 30_000_000
+    max_active_cuts_size: int = 100_000_000
 
     # ---- algorithm control ----
     max_iter: int = 3000
-    num_iter_no_improve: int = 2
+    num_iter_no_improve: int = 1_000_000
     exact_separation: bool = True
     remove_inactive_cuts: bool = True
     warm_start: int = 1

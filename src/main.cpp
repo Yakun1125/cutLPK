@@ -72,6 +72,20 @@ int main(int argc, char* argv[]) {
         else if (key == "bnb_output_level") params.bnb_output_level = std::stoi(value); 
     }
 
+    // Apply type-specific default overrides (user CLI args take precedence;
+    if (!params.fair_clustering_fairness_type.empty()) {
+        // Fair clustering defaults
+        if (params.cutting_plane_max_cuts_firstLP == static_cast<int>(1.5e7))
+            params.cutting_plane_max_cuts_firstLP = 1000000;
+        if (params.cutting_plane_num_iter_no_improve == 2)
+            params.cutting_plane_num_iter_no_improve = 5;
+    }
+    if (params.is_spectral_clustering) {
+        // Spectral clustering defaults
+        if (params.cutting_plane_num_iter_no_improve == 2)
+            params.cutting_plane_num_iter_no_improve = 1000000;
+    }
+
     if (params.cutting_plane_output_file.empty()) {
         params.cutting_plane_output_file = std::string(dataFile) + "_K" + std::to_string(K);
         if (!params.fair_clustering_fairness_type.empty()) {

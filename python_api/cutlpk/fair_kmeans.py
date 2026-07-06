@@ -56,13 +56,13 @@ class FairKMeans:
     solver: str = "cupdlpx"
     solver_warm_start: bool = True
     fair_assignment_solver: str = "highs"  # "highs" (default, MIT) or "gurobi" (deprecated)
-    max_cuts_init: int = 15_000_000
-    max_cuts_per_iter: int = 30_000_000
+    max_cuts_init: int = 1_000_000
+    max_cuts_per_iter: int = 100_000_000
     max_cuts_added_iter: int = 10_000_000
     max_separation_size: int = 15_000_000
-    max_active_cuts_size: int = 30_000_000
+    max_active_cuts_size: int = 100_000_000
     max_iter: int = 3000
-    num_iter_no_improve: int = 2
+    num_iter_no_improve: int = 5
     exact_separation: bool = True
     remove_inactive_cuts: bool = True
     warm_start: int = 1

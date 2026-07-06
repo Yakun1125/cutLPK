@@ -59,13 +59,13 @@ class OrdinaryKMeans:
     max_cuts_init : int
         Maximum number of inequalities in the initial LP (default 15 000 000).
     max_cuts_per_iter : int
-        Maximum total cuts allowed in the LP at any iteration (default 30 000 000).
+        Maximum total cuts allowed in the LP at any iteration (default 100 000 000).
     max_cuts_added_iter : int
         Maximum cuts added in a *single* iteration (default 10 000 000).
     max_separation_size : int
         Maximum number of cuts examined during separation (default 15 000 000).
     max_active_cuts_size : int
-        Maximum number of active (tight) cuts retained (default 30 000 000).
+        Maximum number of active (tight) cuts retained (default 100 000 000).
 
     Cutting-plane – algorithm control
     ---------------------------------
@@ -190,10 +190,10 @@ class OrdinaryKMeans:
 
     # ---- cut management ----
     max_cuts_init: int = 15_000_000
-    max_cuts_per_iter: int = 30_000_000
+    max_cuts_per_iter: int = 100_000_000
     max_cuts_added_iter: int = 10_000_000
     max_separation_size: int = 15_000_000
-    max_active_cuts_size: int = 30_000_000
+    max_active_cuts_size: int = 100_000_000
 
     # ---- algorithm control ----
     max_iter: int = 3000
