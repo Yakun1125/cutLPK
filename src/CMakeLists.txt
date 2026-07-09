@@ -10,6 +10,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
         set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+add_compile_options(
+    "$<$<CXX_COMPILER_ID:MSVC>:/O2;/EHsc;/utf-8>"
+    "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3;-march=native>"
+)
+
 if(CMAKE_CUDA_PATH)
         set(CUDAToolkit_ROOT "${CMAKE_CUDA_PATH}" CACHE PATH "CUDA toolkit root" FORCE)
 endif()
@@ -38,10 +43,6 @@ endif()
 add_library(cutlpk_core STATIC ${CUTLPK_CORE_SOURCES})
 set_target_properties(cutlpk_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(cutlpk_core PUBLIC cxx_std_17)
-target_compile_options(cutlpk_core PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/O2 /EHsc /utf-8>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3 -march=native>
-)
 target_include_directories(cutlpk_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

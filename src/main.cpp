@@ -38,6 +38,7 @@ int main(int argc, char* argv[]) {
         else if (key == "solver") params.solver = value;
         else if (key == "fairness_param") params.fair_clustering_fairness_param = std::stod(value);
         else if (key == "fairness_type") params.fair_clustering_fairness_type = value;
+        else if (key == "fair_assignment_solver") params.fair_assignment_solver = value;
         else if (key == "output_level") params.cutting_plane_output_level = std::stoi(value);
         else if (key == "cutting_plane_verbose") params.cutting_plane_verbose = std::stoi(value);
         else if (key == "random_seed") params.random_seed = std::stoi(value);

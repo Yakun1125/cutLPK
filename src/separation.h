@@ -5,14 +5,27 @@
 #include "Utils_Struct.h"
 #include <chrono>
 
+// Per-(source,j) greedy chain-walk state, persisted across successive separation_scheme
+// calls within a single update_cuts() ladder (i.e. while max_T is incremented but Xsol is
+// unchanged) so each call can resume extending from where the previous one left off instead
+// of re-walking chains from scratch.
+struct ChainWalkState {
+    std::vector<int> chain;      // greedy chain built so far, excluding `source` (chain[0] == j)
+    int current_node = -1;
+    double current_cost = 0.0;
+    bool initialized = false;    // false => must be seeded fresh (chain = {j})
+    bool exhausted = false;      // true => no further extension exists; deterministic, skip on resume
+};
+
 void separation_scheme(
-    const Eigen::MatrixXd& Xsol, 
-    std::vector<std::list<validInequality>>& violated_cuts, 
-    int max_T, 
-    int N, 
-    int maxSize, 
+    const Eigen::MatrixXd& Xsol,
+    std::vector<std::list<validInequality>>& violated_cuts,
+    int max_T,
+    int N,
+    int maxSize,
     double cuts_vio_tol,
-    double time_limit_seconds
+    double time_limit_seconds,
+    std::vector<ChainWalkState>& walk_states
 );
 
 void separation_scheme_top_k(

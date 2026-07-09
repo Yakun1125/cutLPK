@@ -16,17 +16,18 @@ std::string getInequalityKey(const std::vector<int>& ineq_idx) {
 }
 
 void separation_scheme(
-    const Eigen::MatrixXd& Xsol, 
-    std::vector<std::list<validInequality>>& violated_cuts, 
-    int max_T, 
-    int N, 
-    int maxSize, 
+    const Eigen::MatrixXd& Xsol,
+    std::vector<std::list<validInequality>>& violated_cuts,
+    int max_T,
+    int N,
+    int maxSize,
     double cuts_vio_tol,
-    double time_limit_seconds
+    double time_limit_seconds,
+    std::vector<ChainWalkState>& walk_states
 ) {
 	int max_list_size = 0;
     auto start_time = std::chrono::steady_clock::now();
-#pragma omp parallel for shared(violated_cuts, max_list_size, start_time, time_limit_seconds)
+#pragma omp parallel for shared(violated_cuts, max_list_size, start_time, time_limit_seconds, walk_states)
 	for (int source = 0; source < N; ++source) {
         // Check time limit at source level — skip remaining sources if time expired
         {
@@ -36,11 +37,26 @@ void separation_scheme(
         }
 		for (int j = 0; j < N; ++j) {
 			if (j != source) {
-				std::vector<int> chain = { j };
-				int current_node = j;
-				double current_cost = -Xsol(source, source) + Xsol(source, j);
+				// Each (source,j) pair is only ever touched by the thread that owns `source`
+				// within this call, and calls are sequential across ladder rungs, so no extra
+				// synchronization is needed to read/write this state.
+				ChainWalkState& st = walk_states[static_cast<size_t>(source) * N + j];
+				if (!st.initialized) {
+					st.chain = { j };
+					st.current_node = j;
+					st.current_cost = -Xsol(source, source) + Xsol(source, j);
+					st.initialized = true;
+				}
+				if (st.exhausted) {
+					continue;
+				}
 
-				for (int size = 2; size <= max_T; ++size) {
+				std::vector<int>& chain = st.chain;
+				int current_node = st.current_node;
+				double current_cost = st.current_cost;
+
+				// Resume from the size already reached on a previous rung instead of size=2.
+				for (int size = static_cast<int>(chain.size()) + 1; size <= max_T; ++size) {
                     // Synchronized read of max_list_size for early exit
                     #pragma omp flush(max_list_size)
 					if (max_list_size >= maxSize) break;
@@ -87,9 +103,19 @@ void separation_scheme(
 						current_node = best_next_node;
 					}
 					else {
+						if (best_next_node == -1) {
+							// Deterministic dead end for this (source,j) given the current Xsol:
+							// no candidate node remains to extend to. This will recur identically
+							// on any future rung, so mark it exhausted rather than rediscovering
+							// this on every ladder call.
+							st.exhausted = true;
+						}
 						break;
 					}
 				}
+
+				st.current_node = current_node;
+				st.current_cost = current_cost;
 			}
 		}
 	}
@@ -239,6 +265,16 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
         std::vector<std::list<validInequality>> violated_cuts(max_T - 1);
         violation_size = 0;
 
+        // Shared time budget for the max_T ladder below: each step of the ladder eats
+        // into the same budget instead of getting a fresh params.cutting_plane_max_separation_time
+        // each time, so growing max_T (e.g. for large K) can't blow up the per-iteration wall-clock time.
+        auto ladder_start = std::chrono::steady_clock::now();
+
+        // Persists each (source,j) greedy chain-walk across ladder rungs (Xsol is unchanged
+        // while max_T increases here), so separation_scheme can resume extending from where it
+        // left off instead of re-walking chains from scratch on every rung.
+        std::vector<ChainWalkState> walk_states(static_cast<size_t>(N) * N);
+
         while (true) {
             omp_set_num_threads(2);
 
@@ -247,14 +283,22 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
             }
             violation_size = 0;
 
+            double ladder_elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - ladder_start).count();
+            double ladder_remaining = params.cutting_plane_max_separation_time - ladder_elapsed;
+            if (ladder_remaining <= 0.0) {
+                // Ladder time budget exhausted; stop increasing max_T and fall through to the
+                // exact separation check below (which gets its own independent time budget).
+                break;
+            }
+
             //separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, 2);
-            separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time);
+            separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, ladder_remaining, walk_states);
 
             for (int i = 0; i < max_T - 1; ++i) {
                 violation_size += violated_cuts[i].size();
             }
 
-            if (violation_size > 0) { 
+            if (violation_size > 0) {
                 break;
             }
 
@@ -263,18 +307,24 @@ int update_cuts(LPK& lp, const parameters& params, const Eigen::MatrixXd& Xsol, 
                 max_T++;
                 signs.push_back('+');
                 violated_cuts.resize(max_T - 1);
-            } else if(params.cutting_plane_exact_separation) {
-                // do exact separation
-                // std::cout<<"No violated cuts found with current max_T = "<<max_T<<". start search top K."<<std::endl;
-                separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, max_T + 1, params.cutting_plane_max_separation_time);
-                //exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
-                for (int i = 0; i < max_T - 1; ++i) {
-                    violation_size += violated_cuts[i].size();
-                }
+            } else {
                 break;
             }
-            else{
-                break;
+        }
+
+        // Exact separation gets its own fresh time budget, independent of how much of the
+        // ladder budget above was used. Total worst case per update_cuts() call is therefore
+        // bounded by (ladder budget + exact separation budget), regardless of K/t_upper_bound.
+        if (violation_size == 0 && params.cutting_plane_exact_separation) {
+            // std::cout<<"No violated cuts found with current max_T = "<<max_T<<". start search top K."<<std::endl;
+            for (auto& cuts_list : violated_cuts) {
+                cuts_list.clear();
+            }
+            separation_scheme_top_k(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, max_T + 1, params.cutting_plane_max_separation_time);
+            //exact_separation_scheme(Xsol, violated_cuts, max_T, N, params.cutting_plane_max_cuts_separation_size, params.cutting_plane_cuts_vio_tol, params.cutting_plane_max_separation_time, max_T);
+            violation_size = 0;
+            for (int i = 0; i < max_T - 1; ++i) {
+                violation_size += violated_cuts[i].size();
             }
         }
         auto separation_end = std::chrono::high_resolution_clock::now();
@@ -498,8 +548,10 @@ void separation_scheme_top_k(
                 current_level.push_back({j, -Xsol(source, source) + Xsol(source, j), {j}});
                 
                 for (int size = 2; size <= max_T; ++size) {
+                    // Synchronized read of max_list_size for early exit
+                    #pragma omp flush(max_list_size)
                     if (max_list_size >= maxSize) break;
-                    
+
                     std::vector<NodeExtension> next_level;
                     
                     // For each chain in current level

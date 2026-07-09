@@ -44,7 +44,8 @@ int solver_cupdlpx(
         u,         // con_ub
         lp.varLb.data(), // var_lb 
         lp.varUb.data(), // var_ub 
-        NULL     // objective_constant
+        NULL,     // objective_constant
+        NULL,     // objective_sense default to minimize
     );
         if (!prob) {
         std::cerr << "[solver_cupdlp] create_lp_problem failed." << std::endl;
@@ -71,6 +72,7 @@ int solver_cupdlpx(
     // Solve
     pdhg_parameters_t params;
     set_default_parameters(&params);
+    params.verbose = false;
 
     // Set your custom tolerance and time limit
     params.termination_criteria.eps_optimal_relative = tolerance; 
