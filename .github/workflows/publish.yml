@@ -29,8 +29,10 @@ jobs:
       - name: Verify sdist structure
         run: |
           python -c "
-          import tarfile, sys
-          with tarfile.open('dist/cutlpk-*.tar.gz') as tf:
+          import tarfile, glob, sys
+          files = glob.glob('dist/cutlpk-*.tar.gz')
+          assert files, 'No sdist found in dist/'
+          with tarfile.open(files[0]) as tf:
               names = tf.getnames()
           required = ['python_api/bindings.cpp', 'python_api/cutlpk/__init__.py',
                       'src/CMakeLists.txt', 'pyproject.toml']
