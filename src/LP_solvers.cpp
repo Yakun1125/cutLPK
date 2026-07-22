@@ -45,7 +45,7 @@ int solver_cupdlpx(
         lp.varLb.data(), // var_lb 
         lp.varUb.data(), // var_ub 
         NULL,     // objective_constant
-        NULL,     // objective_sense default to minimize
+        NULL     // objective_sense default to minimize
     );
         if (!prob) {
         std::cerr << "[solver_cupdlp] create_lp_problem failed." << std::endl;

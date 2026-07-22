@@ -129,6 +129,7 @@ struct parameters {
 	int cutting_plane_warm_start;
 	int cutting_plane_max_iter;
 	int cutting_plane_t_upper_bound;
+	int cutting_plane_initial_T;
 	int cutting_plane_num_iter_no_improve;
 	double cutting_plane_firstLP_time_limit;
 	double cutting_plane_LP_time_limit;
@@ -176,6 +177,7 @@ struct parameters {
 		cutting_plane_warm_start(1),
 		cutting_plane_max_iter(3000),
 		cutting_plane_t_upper_bound(2),
+		cutting_plane_initial_T(2),
 		cutting_plane_num_iter_no_improve(2),
 		cutting_plane_firstLP_time_limit(360.0),
 		cutting_plane_LP_time_limit(180.0),
@@ -232,6 +234,9 @@ struct cutLPKSolveInfo {
     // Primal and dual solutions for warm starting
     std::vector<double> primal_solution;
     std::vector<double> dual_solution;
+    // Exit state from cutting plane solver (for B&B inheritance)
+    int final_max_T = 2;
+    double final_solver_time_limit = 360.0;
 };
 
 enum class BnBStatus : int {
@@ -274,6 +279,10 @@ struct BBNode {
     // Primal and dual solutions for warm starting
     std::vector<double> primal_solution;
     std::vector<double> dual_solution;
+    
+    // Inherited cutting-plane state from parent node (for warm-starting child nodes)
+    int inherited_max_T = 2;
+    double inherited_solver_time_limit = 360.0;
     
     // Status flags
     bool is_explored;

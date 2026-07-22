@@ -123,7 +123,7 @@ ICPStatus iterative_cutting_plane_solver(
 
     int cut_iter = 0;
     ICPStatus exit_status = ICPStatus::SUCCESS;
-    int max_T = 2;
+    int max_T = params.cutting_plane_initial_T;
     int cuts_active_size = 0;
     int violation_size = 0;
     double best_primal_obj = 0.0;
@@ -458,6 +458,9 @@ ICPStatus iterative_cutting_plane_solver(
     // Store final primal and dual solutions for warm starting
     cutLPKInfor.primal_solution = last_primal_sol;
     cutLPKInfor.dual_solution = last_dual_sol;
+    // Store final cutting-plane state for B&B inheritance
+    cutLPKInfor.final_max_T = max_T;
+    cutLPKInfor.final_solver_time_limit = solver_time_limit;
 
     if (params.cutting_plane_output_level>=1 && !params.cutting_plane_output_file.empty()) {
         std::ofstream file(params.cutting_plane_output_file, std::ios::app);

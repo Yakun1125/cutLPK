@@ -280,6 +280,9 @@ BnBStatus branch_and_bound_solver(
     root->primal_solution = cutLPKInfo.primal_solution;
     root->dual_solution = cutLPKInfo.dual_solution;
     root->is_explored = true;  // Mark as solved since we have cutLPK solution
+    // Inherit cutting-plane state from the initial root solve
+    root->inherited_max_T = cutLPKInfo.final_max_T;
+    root->inherited_solver_time_limit = cutLPKInfo.final_solver_time_limit;
 
     // print with high precision
     // std::cout << "Root node (from cutLPK): LB=" << std::fixed << std::setprecision(6) << root->lower_bound << ", UB=" << std::fixed << std::setprecision(6) << root->upper_bound << std::endl;
@@ -309,6 +312,11 @@ BnBStatus branch_and_bound_solver(
     left_child->dual_solution = root->dual_solution;
     right_child->primal_solution = root->primal_solution;
     right_child->dual_solution = root->dual_solution;
+    // Pass inherited cutting-plane state to children
+    left_child->inherited_max_T = root->inherited_max_T;
+    left_child->inherited_solver_time_limit = root->inherited_solver_time_limit;
+    right_child->inherited_max_T = root->inherited_max_T;
+    right_child->inherited_solver_time_limit = root->inherited_solver_time_limit;
 
     tree.addNode(left_child);
     tree.addNode(right_child);
@@ -395,7 +403,7 @@ BnBStatus branch_and_bound_solver(
         parameters node_params = params;
         node_params.cutting_plane_opt_gap = node_params.bnb_gap_tol;
         node_params.cutting_plane_max_iter = node_params.bnb_cut_iter_limit;
-        node_params.cutting_plane_time_limit = node_params.bnb_time_limit;
+        node_params.cutting_plane_time_limit = node_params.bnb_time_limit*0.2;
         node_params.bnb_global_ub = tree.global_upper_bound;
         node_params.cutting_plane_exact_separation = false;
         node_params.cutting_plane_max_separation_time = 30;
@@ -405,6 +413,11 @@ BnBStatus branch_and_bound_solver(
         node_params.cutting_plane_lb_solver_tol = 1e-5;
         node_params.cutting_plane_max_cuts_added_iter = node_cutting_planes.size();
         node_params.cutting_plane_remove_inactive_cuts = false;
+        // Inherit cutting-plane state from parent node
+        if (current_node->depth > 0) {
+            node_params.cutting_plane_initial_T = current_node->inherited_max_T;
+            node_params.cutting_plane_firstLP_time_limit = current_node->inherited_solver_time_limit;
+        }
 
 
         // std::cout<<"cutLPK opt gap tol: "<<node_params.cutting_plane_opt_gap<<", max iter: "<<node_params.cutting_plane_max_iter
@@ -471,6 +484,9 @@ BnBStatus branch_and_bound_solver(
         // Store primal and dual solutions from this node's solve
         current_node->primal_solution = node_info.primal_solution;
         current_node->dual_solution = node_info.dual_solution;
+        // Store cutting-plane exit state for inheritance to children
+        current_node->inherited_max_T = node_info.final_max_T;
+        current_node->inherited_solver_time_limit = node_info.final_solver_time_limit;
         cutting_planes = node_cutting_planes;
 
                 // Update global bounds
@@ -519,6 +535,11 @@ BnBStatus branch_and_bound_solver(
             left_child->dual_solution = current_node->dual_solution;
             right_child->primal_solution = current_node->primal_solution;
             right_child->dual_solution = current_node->dual_solution;
+            // Pass inherited cutting-plane state to children
+            left_child->inherited_max_T = current_node->inherited_max_T;
+            left_child->inherited_solver_time_limit = current_node->inherited_solver_time_limit;
+            right_child->inherited_max_T = current_node->inherited_max_T;
+            right_child->inherited_solver_time_limit = current_node->inherited_solver_time_limit;
             tree.addNode(left_child);
             tree.addNode(right_child);
             node_status = "BRANCHING";
